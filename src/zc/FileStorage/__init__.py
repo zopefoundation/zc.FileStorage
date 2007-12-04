@@ -24,6 +24,17 @@ import ZODB.FileStorage
 import ZODB.FileStorage.fspack
 import ZODB.fsIndex
 
+class OptionalSeekFile(file):
+    """File that doesn't seek to current position.
+
+    This is to try to avoid gobs of system calls.
+    """
+
+    def seek(self, pos):
+        if pos != self.tell():
+            file.seek(self, pos)
+    
+
 class FileStoragePacker(FileStorageFormatter):
 
     def __init__(self, path, stop, la, lr, cla, clr, current_size):
@@ -35,7 +46,7 @@ class FileStoragePacker(FileStorageFormatter):
 
         # We set the buffer quite high (32MB) to try to reduce seeks
         # when the storage is disk is doing other io
-        self._file = open(path, "rb", 1<<25)
+        self._file = OptionalSeekFile(path, "rb", 1<<25)
 
         self._path = path
         self._stop = stop
@@ -63,7 +74,7 @@ class FileStoragePacker(FileStorageFormatter):
         self.updateReferences(references, packpos, self.file_end)
         index = self.gc(index, references)
 
-        output = open(self._name + ".pack", "w+b", 1<<25)
+        output = OptionalSeekFile(self._name + ".pack", "w+b", 1<<25)
         index, new_pos = self.copyToPacktime(packpos, index, output)
         if new_pos == packpos:
             # pack didn't free any data.  there's no point in continuing.
@@ -73,7 +84,6 @@ class FileStoragePacker(FileStorageFormatter):
             return None
 
         new_pos = self.copyFromPacktime(packpos, self.file_end, output, index)
-        
 
         # OK, we've copied everything. Now we need to wrap things up.
         pos = output.tell()
@@ -118,7 +128,7 @@ class FileStoragePacker(FileStorageFormatter):
                 index[dh.oid] = pos
                 ioid = u64(dh.oid)
                 refs = self._refs(dh)
-                if refs:
+                if refs is not None:
                     references[ioid] = refs
                 else:
                     references.pop(ioid, None)
@@ -156,7 +166,7 @@ class FileStoragePacker(FileStorageFormatter):
                     self.fail(pos, "Versions are not supported")
                 ioid = u64(dh.oid)
                 refs = self._refs(dh, references.get(ioid))
-                if refs:
+                if refs is not None:
                     references[ioid] = refs
                 else:
                     references.pop(ioid, None)
@@ -182,13 +192,23 @@ class FileStoragePacker(FileStorageFormatter):
         refs = referencesf(self._file.read(dh.plen))
         if not refs:
             return initial
+
+        if initial is not None:
+            refs = set(map(u64, refs))
+            if initial.__class__ is tuple:
+                refs.update(initial)
+            else:
+                refs.add(initial)
+            if len(refs) == 1:
+                return refs.pop()
+        else:
+            if len(refs) == 1:
+                return u64(refs.pop())
+            refs = set(map(u64, refs))
+            if len(refs) == 1:
+                return refs.pop()
             
-        if not initial:
-            initial = BTrees.LLBTree.LLSet()
-        initial.update(u64(oid) for oid in refs)
-        result = BTrees.LLBTree.LLSet()
-        result.__setstate__((tuple(initial),))
-        return result
+        return tuple(refs)
 
     def gc(self, index, references):
         to_do = [0]
@@ -208,7 +228,13 @@ class FileStoragePacker(FileStorageFormatter):
                 # in the index.
                 pass
 
-            to_do.extend(references.pop(ioid, ()))
+            refs = references.pop(ioid, None)
+            if refs is not None:
+                if refs.__class__ is tuple:
+                    to_do.extend(refs)
+                else:
+                    to_do.append(refs)
+                
         references.clear()
         return reachable
 
@@ -266,10 +292,11 @@ class FileStoragePacker(FileStorageFormatter):
                 output.write(tlen)
                 new_pos += 8
 
-                # Update the transaction length
-                output.seek(new_tpos + 8)
-                output.write(tlen)
-                output.seek(new_pos)
+                if tlen != th.tlen:
+                    # Update the transaction length
+                    output.seek(new_tpos + 8)
+                    output.write(tlen)
+                    output.seek(new_pos)
 
             pos += 8
 
@@ -297,7 +324,7 @@ class FileStoragePacker(FileStorageFormatter):
         # native Windows it was observed that we could read stale
         # data from the tail end of the file.
         self._file.close()
-        self._file = open(self._path, "rb", 0)
+        self._file = OptionalSeekFile(self._path, "rb", 0)
 
         try:
             while 1:
