@@ -12,11 +12,12 @@
 #
 ##############################################################################
 
-import sys
+import os, sys
 
 from ZODB.FileStorage.format import FileStorageFormatter, CorruptedDataError
 from ZODB.serialize import referencesf
 from ZODB.utils import p64, u64, z64
+from ZODB.FileStorage.format import TRANS_HDR_LEN
 
 import BTrees.LLBTree, BTrees.LOBTree
 import ZODB.FileStorage
@@ -134,6 +135,12 @@ class FileStoragePacker(FileStorageFormatter):
         return packed, index, references, pos
 
     def updateReferences(self, references, pos, file_end):
+
+        # Note that we don't update an index in this step.  This is
+        # because we don't care about objects created after the pack
+        # time.  We'll add those in a later phase. We only care about
+        # references to existing objects.
+        
         while pos < file_end:
             th = self._read_txn_header(pos)
             self.checkTxn(th, pos)
@@ -192,7 +199,15 @@ class FileStoragePacker(FileStorageFormatter):
             if oid in reachable:
                 continue
 
-            reachable[oid] = index[oid]
+            try:
+                reachable[oid] = index[oid]
+            except KeyError:
+                # Note that the references include references made
+                # after the pack time.  These include references to
+                # objects created after the pack time, which won't be
+                # in the index.
+                pass
+
             to_do.extend(references.pop(ioid, ()))
         references.clear()
         return reachable
@@ -303,9 +318,7 @@ class FileStoragePacker(FileStorageFormatter):
     def _copyNewTrans(self, input_pos, output, index,
                       acquire=None, release=None):
         tindex = {}
-        copier = ZODB.FileStorage.fspack.PackCopier(
-            output, index, {}, tindex, {},
-            )
+        copier = PackCopier(output, index, {}, tindex, {})
         th = self._read_txn_header(input_pos)
         if release is not None:
             release()
@@ -363,3 +376,23 @@ class FileStoragePacker(FileStorageFormatter):
 
 sys.modules['ZODB.FileStorage.FileStorage'
             ].FileStoragePacker = FileStoragePacker
+ZODB.FileStorage.FileStorage.supportsVersions = lambda self: False
+
+class PackCopier(ZODB.FileStorage.fspack.PackCopier):
+
+    def _txn_find(self, tid, stop_at_pack):
+        # _pos always points just past the last transaction
+        pos = self._pos
+        while pos > 4:
+            self._file.seek(pos - 8)
+            pos = pos - u64(self._file.read(8)) - 8
+            self._file.seek(pos)
+            h = self._file.read(TRANS_HDR_LEN)
+            _tid = h[:8]
+            if _tid == tid:
+                return pos
+            if stop_at_pack:
+                if h[16] == 'p':
+                    break
+
+        return None
