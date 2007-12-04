@@ -1,4 +1,5 @@
 from setuptools import setup, find_packages
+from distutils.core import Extension
 
 name = 'zc.FileStorage'
 setup(
@@ -10,6 +11,10 @@ setup(
     license = 'ZPL 2.1',
 
     packages = find_packages('src'),
+    ext_modules=[
+        Extension('zc.FileStorage._zc_FileStorage_posix_fadvise',
+                  ['src/zc/FileStorage/_zc_FileStorage_posix_fadvise.c'])
+        ],
     namespace_packages = ['zc'],
     package_dir = {'': 'src'},
     install_requires = [
