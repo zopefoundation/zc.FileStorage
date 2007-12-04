@@ -15,16 +15,19 @@
 #include <fcntl.h>
 #include "Python.h"
 
+#ifdef POSIX_FADV_DONTNEED
+
 #define OBJECT(O) ((PyObject*)(O))
 
 static PyObject *
 py_posix_fadvise(PyObject *self, PyObject *args)
 {  
   int fd, advice;
+  long long offset, len;
   
-  if (! PyArg_ParseTuple(args, "ii", &fd, &advice))
+  if (! PyArg_ParseTuple(args, "iLLi", &fd, &offset, &len, &advice))
     return NULL; 
-  return PyInt_FromLong(posix_fadvise(fd, 0, 0, advice));
+  return PyInt_FromLong(posix_fadvise(fd, offset, len, advice));
 }
 
 static struct PyMethodDef m_methods[] = {
@@ -46,14 +49,35 @@ init_zc_FileStorage_posix_fadvise(void)
   m = Py_InitModule3("_zc_FileStorage_posix_fadvise", m_methods, "");
   if (m == NULL)
     return;
-  if (PyModule_AddObject(m, 
-                         "POSIX_FADV_SEQUENTIAL",
+
+  if (PyModule_AddObject(m, "POSIX_FADV_NORMAL",
+                         OBJECT(PyInt_FromLong(POSIX_FADV_NORMAL))
+                         ) < 0)
+    return;
+  if (PyModule_AddObject(m, "POSIX_FADV_SEQUENTIAL",
                          OBJECT(PyInt_FromLong(POSIX_FADV_SEQUENTIAL))
                          ) < 0)
     return;
-  if (PyModule_AddObject(m, 
-                         "POSIX_FADV_NOREUSE",
+
+  if (PyModule_AddObject(m, "POSIX_FADV_RANDOM",
+                         OBJECT(PyInt_FromLong(POSIX_FADV_RANDOM))
+                         ) < 0)
+    return;
+
+  if (PyModule_AddObject(m, "POSIX_FADV_WILLNEED",
+                         OBJECT(PyInt_FromLong(POSIX_FADV_WILLNEED))
+                         ) < 0)
+    return;
+
+  if (PyModule_AddObject(m, "POSIX_FADV_DONTNEED",
+                         OBJECT(PyInt_FromLong(POSIX_FADV_DONTNEED))
+                         ) < 0)
+    return;
+
+  if (PyModule_AddObject(m, "POSIX_FADV_NOREUSE",
                          OBJECT(PyInt_FromLong(POSIX_FADV_NOREUSE))
                          ) < 0)
     return;
 }
+
+#endif
