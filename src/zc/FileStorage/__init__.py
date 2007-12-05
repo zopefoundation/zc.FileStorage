@@ -46,7 +46,7 @@ class FileStoragePacker(FileStorageFormatter):
 
         # We set the buffer quite high (32MB) to try to reduce seeks
         # when the storage is disk is doing other io
-        self._file = OptionalSeekFile(path, "rb", 1<<25)
+        self._file = OptionalSeekFile(path, "rb")
 
         self._path = path
         self._stop = stop
@@ -74,7 +74,7 @@ class FileStoragePacker(FileStorageFormatter):
         self.updateReferences(references, packpos, self.file_end)
         index = self.gc(index, references)
 
-        output = OptionalSeekFile(self._name + ".pack", "w+b", 1<<25)
+        output = OptionalSeekFile(self._name + ".pack", "w+b")
         index, new_pos = self.copyToPacktime(packpos, index, output)
         if new_pos == packpos:
             # pack didn't free any data.  there's no point in continuing.
