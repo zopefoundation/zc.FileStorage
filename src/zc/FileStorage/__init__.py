@@ -12,14 +12,15 @@
 #
 ##############################################################################
 
-import os, sys
+import os
+import sys
 
 from ZODB.FileStorage.format import FileStorageFormatter, CorruptedDataError
 from ZODB.serialize import referencesf
 from ZODB.utils import p64, u64, z64
 from ZODB.FileStorage.format import TRANS_HDR_LEN
 
-import BTrees.LLBTree, BTrees.LOBTree
+import BTrees.IOBTree, BTrees.LOBTree
 import ZODB.FileStorage
 import ZODB.FileStorage.fspack
 import ZODB.fsIndex
@@ -127,13 +128,7 @@ class FileStoragePacker(FileStorageFormatter):
                 if dh.version:
                     self.fail(pos, "Versions are not supported")
                 index[dh.oid] = pos
-                ioid = u64(dh.oid)
-                refs = self._refs(dh)
-                if refs is not None:
-                    references[ioid] = refs
-                else:
-                    references.pop(ioid, None)
-                
+                self._update_refs(dh, references)
                 pos += dh.recordlen()
 
             tlen = self._read_num(pos)
@@ -165,14 +160,7 @@ class FileStoragePacker(FileStorageFormatter):
                 self.checkData(th, tpos, dh, pos)
                 if dh.version:
                     self.fail(pos, "Versions are not supported")
-                ioid = u64(dh.oid)
-                refs = self._refs(dh, references.get(ioid))
-                if refs is not None:
-                    references[ioid] = refs
-                else:
-                    references.pop(ioid, None)
-                
-                
+                self._update_refs(dh, references, 1)
                 pos += dh.recordlen()
 
             tlen = self._read_num(pos)
@@ -182,34 +170,55 @@ class FileStoragePacker(FileStorageFormatter):
                           tlen, th.tlen)
             pos += 8
 
-    def _refs(self, dh, initial=None):
+    def _update_refs(self, dh, references, merge=False):
         # Chase backpointers until we get to the record with the refs
         while dh.back:
             dh = self._read_data_header(dh.back)
 
-        if not dh.plen:
-            return initial
-        
-        refs = referencesf(self._file.read(dh.plen))
-        if not refs:
-            return initial
+        ioid1, ioid2 = divmod(u64(dh.oid), 2147483648L)
+        ioid2 = int(ioid2)
 
-        if initial is not None:
-            refs = set(map(u64, refs))
-            if initial.__class__ is tuple:
-                refs.update(initial)
-            else:
-                refs.add(initial)
-            if len(refs) == 1:
-                return refs.pop()
+        references1 = references.get(ioid1)
+        if references1 is None:
+            references1 = references[ioid1] = BTrees.IOBTree.IOBTree()
+
+        if merge:
+            initial = references1.get(ioid2)
         else:
-            if len(refs) == 1:
-                return u64(refs.pop())
-            refs = set(map(u64, refs))
-            if len(refs) == 1:
-                return refs.pop()
-            
-        return tuple(refs)
+            initial = None
+
+
+        if dh.plen:
+            refs = referencesf(self._file.read(dh.plen))
+            if refs:
+                if initial is not None:
+                    refs = set(map(u64, refs))
+                    if initial.__class__ is tuple:
+                        refs.update(initial)
+                    else:
+                        refs.add(initial)
+                    if len(refs) == 1:
+                        refs = refs.pop()
+                    else:
+                        refs = tuple(refs)
+                else:
+                    if len(refs) == 1:
+                        refs = u64(refs.pop())
+                    else:
+                        refs = set(map(u64, refs))
+                        if len(refs) == 1:
+                            refs = refs.pop()
+                        else:
+                            refs = tuple(refs)
+            else:
+                refs = initial
+        else:
+            refs = initial
+
+        if refs is not None:
+            references1[ioid2] = refs
+        else:
+            references1.pop(ioid2, None)
 
     def gc(self, index, references):
         to_do = [0]
@@ -229,12 +238,15 @@ class FileStoragePacker(FileStorageFormatter):
                 # in the index.
                 pass
 
-            refs = references.pop(ioid, None)
-            if refs is not None:
-                if refs.__class__ is tuple:
-                    to_do.extend(refs)
-                else:
-                    to_do.append(refs)
+            ioid1, ioid2 = divmod(ioid, 2147483648L)
+            references1 = references.get(ioid1)
+            if references1:
+                refs = references1.pop(int(ioid2), None)
+                if refs is not None:
+                    if refs.__class__ is tuple:
+                        to_do.extend(refs)
+                    else:
+                        to_do.append(refs)
                 
         references.clear()
         return reachable
