@@ -30,9 +30,9 @@ class OptionalSeekFile(file):
     This is to try to avoid gobs of system calls.
     """
 
-    def seek(self, pos):
+    def seek(self, pos, whence=0):
         if pos != self.tell():
-            file.seek(self, pos)
+            file.seek(self, pos, whence)
     
 
 class FileStoragePacker(FileStorageFormatter):
@@ -83,7 +83,8 @@ class FileStoragePacker(FileStorageFormatter):
             os.remove(self._name + ".pack")
             return None
 
-        new_pos = self.copyFromPacktime(packpos, self.file_end, output, index)
+        input_pos = self.copyFromPacktime(packpos, self.file_end, output, index)
+        self.copyRest(input_pos, output, index)
 
         # OK, we've copied everything. Now we need to wrap things up.
         pos = output.tell()
@@ -305,6 +306,7 @@ class FileStoragePacker(FileStorageFormatter):
     def copyFromPacktime(self, input_pos, file_end, output, index):
         while input_pos < file_end:
             input_pos = self._copyNewTrans(input_pos, output, index)
+        return input_pos
 
     def copyRest(self, input_pos, output, index):
         # Copy data records written since packing started.
