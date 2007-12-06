@@ -13,7 +13,11 @@ setup(
     packages = find_packages('src'),
     ext_modules=[
         Extension('zc.FileStorage._zc_FileStorage_posix_fadvise',
-                  ['src/zc/FileStorage/_zc_FileStorage_posix_fadvise.c'])
+                  ['src/zc/FileStorage/_zc_FileStorage_posix_fadvise.c']),
+        Extension('zc.FileStorage._ILBTree',
+                  ['src/zc/FileStorage/_ILBTree.c'],
+                  include_dirs=['3.8/src'],
+                  ),
         ],
     namespace_packages = ['zc'],
     package_dir = {'': 'src'},

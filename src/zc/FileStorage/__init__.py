@@ -20,7 +20,7 @@ from ZODB.serialize import referencesf
 from ZODB.utils import p64, u64, z64
 from ZODB.FileStorage.format import TRANS_HDR_LEN
 
-import BTrees.IOBTree, BTrees.LOBTree
+import BTrees.IOBTree, BTrees.LOBTree, _ILBTree
 import ZODB.FileStorage
 import ZODB.FileStorage.fspack
 import ZODB.fsIndex
@@ -178,12 +178,16 @@ class FileStoragePacker(FileStorageFormatter):
         ioid1, ioid2 = divmod(u64(dh.oid), 2147483648L)
         ioid2 = int(ioid2)
 
-        references1 = references.get(ioid1)
-        if references1 is None:
-            references1 = references[ioid1] = BTrees.IOBTree.IOBTree()
+        references_ioid1 = references.get(ioid1)
+        if references_ioid1 is None:
+            references_ioid1 = references[ioid1] = (
+                _ILBTree.ILBTree(), BTrees.IOBTree.IOBTree()
+                )
 
         if merge:
-            initial = references1.get(ioid2)
+            initial = references_ioid1[0].get(ioid2)
+            if initial is None:
+                initial = references_ioid1[1].get(ioid2)
         else:
             initial = None
 
@@ -198,28 +202,28 @@ class FileStoragePacker(FileStorageFormatter):
                     else:
                         refs.add(initial)
                     if len(refs) == 1:
-                        refs = refs.pop()
+                        references_ioid1[0][ioid2] = refs.pop()
+                        references_ioid1[1].pop(ioid2, None)
                     else:
-                        refs = tuple(refs)
+                        references_ioid1[1][ioid2] = tuple(refs)
+                        references_ioid1[0].pop(ioid2, None)
                 else:
                     if len(refs) == 1:
-                        refs = u64(refs.pop())
+                        references_ioid1[0][ioid2] = u64(refs.pop())
+                        references_ioid1[1].pop(ioid2, None)
                     else:
                         refs = set(map(u64, refs))
                         if len(refs) == 1:
-                            refs = refs.pop()
+                            references_ioid1[0][ioid2] = refs.pop()
+                            references_ioid1[1].pop(ioid2, None)
                         else:
-                            refs = tuple(refs)
-            else:
-                refs = initial
-        else:
-            refs = initial
+                            references_ioid1[1][ioid2] = tuple(refs)
+                            references_ioid1[0].pop(ioid2, None)
+                return
 
-        if refs is not None:
-            references1[ioid2] = refs
-        else:
-            references1.pop(ioid2, None)
-
+        if (not merge) and references_ioid1[0].pop(ioid2, None) is None:
+            references_ioid1[1].pop(ioid2, None)
+                
     def gc(self, index, references):
         to_do = [0]
         reachable = ZODB.fsIndex.fsIndex()
@@ -239,14 +243,17 @@ class FileStoragePacker(FileStorageFormatter):
                 pass
 
             ioid1, ioid2 = divmod(ioid, 2147483648L)
-            references1 = references.get(ioid1)
-            if references1:
-                refs = references1.pop(int(ioid2), None)
-                if refs is not None:
-                    if refs.__class__ is tuple:
+
+            references_ioid1 = references.get(ioid1)
+            if references_ioid1:
+                ioid2 = int(ioid2)
+                ref = references_ioid1[0].pop(ioid2, None)
+                if ref is not None:
+                    to_do.append(ref)
+                else:
+                    refs = references_ioid1[1].pop(ioid2, None)
+                    if refs:
                         to_do.extend(refs)
-                    else:
-                        to_do.append(refs)
                 
         references.clear()
         return reachable
