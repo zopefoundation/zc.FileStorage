@@ -84,6 +84,11 @@ class FileStoragePacker(FileStorageFormatter):
         proc.stdin.close()
         out = proc.stdout.read()
         if proc.wait():
+            if os.path.exists(self._name+'.packerror'):
+                v = cPickle.Unpickler(open(self._name+'.packerror', 'rb')
+                                      ).load()
+                os.remove(self._name+'.packerror')
+                raise v
             raise RuntimeError('The Pack subprocess failed\n'
                                +'-'*60+out+'-'*60+'\n')
 
@@ -241,10 +246,20 @@ import sys
 
 sys.path[:] = %(syspath)r
 
+import cPickle
 import zc.FileStorage
 
-packer = zc.FileStorage.PackProcess(%(path)r, %(stop)r, %(size)r)
-packer.pack()
+try:
+    packer = zc.FileStorage.PackProcess(%(path)r, %(stop)r, %(size)r)
+    packer.pack()
+except Exception, v:
+    try:
+        v = cPickle.dumps(v)
+    except Exception:
+        pass
+    else:
+        open(%(path)r+'.packerror', 'w').write(v)
+    raise
 """
 
 class PackProcess(FileStoragePacker):
