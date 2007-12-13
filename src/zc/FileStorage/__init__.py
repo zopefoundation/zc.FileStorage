@@ -42,6 +42,8 @@ def fsIndexPop(self, key, default=_fsIndexPop_marker):
         if default is _fsIndexPop_marker:
             raise KeyError(key)
         return default
+    if not tree:
+        del self._data[key[:6]]
     return ZODB.fsIndex.str2num(v)
 
 ZODB.fsIndex.fsIndex.pop = fsIndexPop
