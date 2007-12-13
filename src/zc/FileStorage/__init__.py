@@ -27,6 +27,25 @@ import ZODB.FileStorage
 import ZODB.FileStorage.fspack
 import ZODB.fsIndex
 
+
+# fsIndex lacks a pop method. Let's add one. :/
+
+_fsIndexPop_marker = object()
+def fsIndexPop(self, key, default=_fsIndexPop_marker):
+    tree = self._data.get(key[:6], default)
+    if tree is default:
+        if default is _fsIndexPop_marker:
+            raise KeyError(key)
+        return default
+    v = tree.pop(key[6:], default)
+    if v is default:
+        if default is _fsIndexPop_marker:
+            raise KeyError(key)
+        return default
+    return ZODB.fsIndex.str2num(v)
+
+ZODB.fsIndex.fsIndex.pop = fsIndexPop
+
 class OptionalSeekFile(file):
     """File that doesn't seek to current position.
 
@@ -49,6 +68,7 @@ class FileStoragePacker(FileStorageFormatter):
 
         # We set the buffer quite high (32MB) to try to reduce seeks
         # when the storage is disk is doing other io
+
         self._file = OptionalSeekFile(path, "rb")
 
         self._stop = stop
@@ -66,6 +86,7 @@ class FileStoragePacker(FileStorageFormatter):
         self.ltid = z64
 
     def pack(self):
+        
         script = self._name+'.packscript'
         open(script, 'w').write(pack_script_template % dict(
             path = self._name,
@@ -273,6 +294,8 @@ class PackProcess(FileStoragePacker):
 
         # We set the buffer quite high (32MB) to try to reduce seeks
         # when the storage is disk is doing other io
+
+        
         self._file = OptionalSeekFile(path, "rb")
 
         self._name = path
@@ -281,6 +304,30 @@ class PackProcess(FileStoragePacker):
         self.file_end = current_size
 
         self.ltid = z64
+
+        try:
+            import _zc_FileStorage_posix_fadvise
+        except ImportError:
+            def _free(end):
+                pass
+        else:
+            fd = self._file.fileno()
+            last = [0]
+            def _free(pos):
+                if pos == 4:
+                    last[0] = 4
+                elif (pos - last[0]) < 50000000:
+                    return
+                    
+                last[0] = pos
+                _zc_FileStorage_posix_fadvise.fadvise(
+                    fd, 0, last[0]-10000,
+                    _zc_FileStorage_posix_fadvise.POSIX_FADV_DONTNEED)
+
+        self._free = _free
+
+    def _read_txn_header(self, pos, tid=None):
+        return FileStoragePacker._read_txn_header(self, pos, tid)
 
     def pack(self):
         packed, index, references, packpos = self.buildPackIndex(
@@ -442,14 +489,13 @@ class PackProcess(FileStoragePacker):
             if oid in reachable:
                 continue
 
-            try:
-                reachable[oid] = index[oid]
-            except KeyError:
-                # Note that the references include references made
-                # after the pack time.  These include references to
-                # objects created after the pack time, which won't be
-                # in the index.
-                pass
+            # Note that the references include references made
+            # after the pack time.  These include references to
+            # objects created after the pack time, which won't be
+            # in the index.
+            pos = index.pop(oid, 0)
+            if pos:
+                reachable[oid] = pos
 
             ioid1, ioid2 = divmod(ioid, 2147483648L)
 
