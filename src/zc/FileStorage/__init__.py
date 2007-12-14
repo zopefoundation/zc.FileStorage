@@ -320,15 +320,16 @@ class PackProcess(FileStoragePacker):
                     last[0] = 4
                 elif (pos - last[0]) < 50000000:
                     return
-                    
+
                 last[0] = pos
-                _zc_FileStorage_posix_fadvise.fadvise(
+                _zc_FileStorage_posix_fadvise.advise(
                     fd, 0, last[0]-10000,
                     _zc_FileStorage_posix_fadvise.POSIX_FADV_DONTNEED)
 
         self._free = _free
 
     def _read_txn_header(self, pos, tid=None):
+        self._free(pos)
         return FileStoragePacker._read_txn_header(self, pos, tid)
 
     def pack(self):
