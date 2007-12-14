@@ -307,29 +307,10 @@ class PackProcess(FileStoragePacker):
 
         self.ltid = z64
 
-        try:
-            import _zc_FileStorage_posix_fadvise
-        except ImportError:
-            def _free(end):
-                pass
-        else:
-            fd = self._file.fileno()
-            last = [0]
-            def _free(pos):
-                if pos == 4:
-                    last[0] = 4
-                elif (pos - last[0]) < 50000000:
-                    return
-
-                last[0] = pos
-                _zc_FileStorage_posix_fadvise.advise(
-                    fd, 0, last[0]-10000,
-                    _zc_FileStorage_posix_fadvise.POSIX_FADV_DONTNEED)
-
-        self._free = _free
+        self._freecache = _freefunc(self._file)
 
     def _read_txn_header(self, pos, tid=None):
-        self._free(pos)
+        self._freecache(pos)
         return FileStoragePacker._read_txn_header(self, pos, tid)
 
     def pack(self):
@@ -344,6 +325,7 @@ class PackProcess(FileStoragePacker):
         index = self.gc(index, references)
 
         output = OptionalSeekFile(self._name + ".pack", "w+b")
+        output._freecache = _freefunc(output)
         index, new_pos = self.copyToPacktime(packpos, index, output)
         if new_pos == packpos:
             # pack didn't free any data.  there's no point in continuing.
@@ -576,6 +558,9 @@ class PackProcess(FileStoragePacker):
                     output.write(tlen)
                     output.seek(new_pos)
 
+                output._freecache(new_pos)
+                
+
             pos += 8
 
         return new_index, new_pos
@@ -583,4 +568,29 @@ class PackProcess(FileStoragePacker):
     def copyFromPacktime(self, input_pos, file_end, output, index):
         while input_pos < file_end:
             input_pos = self._copyNewTrans(input_pos, output, index)
+            output._freecache(output.tell())
         return input_pos
+
+
+def _freefunc(f):
+    # Return an posix_fadvise-based cache freeer.
+
+    try:
+        import _zc_FileStorage_posix_fadvise
+    except ImportError:
+        return lambda pos: None
+
+    fd = f.fileno()
+    last = [0]
+    def _free(pos):
+        if pos == 4:
+            last[0] = 0
+        elif (pos - last[0]) < 50000000:
+            return
+
+        last[0] = pos
+        _zc_FileStorage_posix_fadvise.advise(
+            fd, 0, last[0]-10000,
+            _zc_FileStorage_posix_fadvise.POSIX_FADV_DONTNEED)
+
+    return _free
