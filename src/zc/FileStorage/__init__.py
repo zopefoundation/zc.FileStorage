@@ -27,27 +27,6 @@ import ZODB.FileStorage
 import ZODB.FileStorage.fspack
 import ZODB.fsIndex
 
-
-# fsIndex lacks a pop method. Let's add one. :/
-
-_fsIndexPop_marker = object()
-def fsIndexPop(self, key, default=_fsIndexPop_marker):
-    tree = self._data.get(key[:6], default)
-    if tree is default:
-        if default is _fsIndexPop_marker:
-            raise KeyError(key)
-        return default
-    v = tree.pop(key[6:], default)
-    if v is default:
-        if default is _fsIndexPop_marker:
-            raise KeyError(key)
-        return default
-    if not tree:
-        del self._data[key[:6]]
-    return ZODB.fsIndex.str2num(v)
-
-ZODB.fsIndex.fsIndex.pop = fsIndexPop
-
 class OptionalSeekFile(file):
     """File that doesn't seek to current position.
 
@@ -478,20 +457,21 @@ class PackProcess(FileStoragePacker):
             # after the pack time.  These include references to
             # objects created after the pack time, which won't be
             # in the index.
-            pos = index.pop(oid, 0)
-            if pos:
-                reachable[oid] = pos
+            try:
+                reachable[oid] = index[oid]
+            except KeyError:
+                pass
 
             ioid1, ioid2 = divmod(ioid, 2147483648L)
 
             references_ioid1 = references.get(ioid1)
             if references_ioid1:
                 ioid2 = int(ioid2)
-                ref = references_ioid1[0].pop(ioid2, None)
+                ref = references_ioid1[0].get(ioid2)
                 if ref is not None:
                     to_do.append(ref)
                 else:
-                    refs = references_ioid1[1].pop(ioid2, None)
+                    refs = references_ioid1[1].get(ioid2)
                     if refs:
                         to_do.extend(refs)
                 
