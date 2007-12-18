@@ -292,7 +292,8 @@ class PackProcess(FileStoragePacker):
         self._freecache(pos)
         return FileStoragePacker._read_txn_header(self, pos, tid)
 
-    def pack(self, do_gc=False):
+    def pack(self):
+        do_gc = not os.path.exists(self._name+'.packnogc')
         packed, index, references, packpos = self.buildPackIndex(
             self._stop, self.file_end, do_gc)
         if packed:
