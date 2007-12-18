@@ -4,7 +4,7 @@ from distutils.core import Extension
 name = 'zc.FileStorage'
 setup(
     name = name,
-    version = '0.1dev',
+    version = '0.2dev',
     author = 'Jim Fulton',
     author_email = 'jim@zope.com',
     description = 'New file-storage pack hack.',
