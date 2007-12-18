@@ -7,7 +7,7 @@ setup(
     version = '0.1dev',
     author = 'Jim Fulton',
     author_email = 'jim@zope.com',
-    description = 'New file-storage pack.',
+    description = 'New file-storage pack hack.',
     license = 'ZPL 2.1',
 
     packages = find_packages('src'),
@@ -21,8 +21,9 @@ setup(
         ],
     namespace_packages = ['zc'],
     package_dir = {'': 'src'},
-    install_requires = [
-    'setuptools', 'ZODB3'],
+    install_requires = ['setuptools',
+                        'ZODB3 >=3.8dev <3.9dev'
+                        ],
     include_package_data = True,
     zip_safe = False,
     )
