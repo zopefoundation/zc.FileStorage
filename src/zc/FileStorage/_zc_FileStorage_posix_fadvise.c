@@ -12,8 +12,9 @@
  #
  ############################################################################*/
 
-#include <fcntl.h>
 #include "Python.h"
+
+#include <fcntl.h>
 
 #ifdef POSIX_FADV_DONTNEED
 
