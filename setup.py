@@ -22,7 +22,7 @@ setup(
     namespace_packages = ['zc'],
     package_dir = {'': 'src'},
     install_requires = ['setuptools',
-                        'ZODB3 >=3.8dev <3.9dev'
+                        'ZODB3 >=3.8dev, <3.9dev'
                         ],
     include_package_data = True,
     zip_safe = False,
