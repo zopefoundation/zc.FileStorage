@@ -292,16 +292,17 @@ class PackProcess(FileStoragePacker):
         self._freecache(pos)
         return FileStoragePacker._read_txn_header(self, pos, tid)
 
-    def pack(self):
+    def pack(self, do_gc=False):
         packed, index, references, packpos = self.buildPackIndex(
-            self._stop, self.file_end)
+            self._stop, self.file_end, do_gc)
         if packed:
             # nothing to do
             self._file.close()
             return
-        
-        self.updateReferences(references, packpos, self.file_end)
-        index = self.gc(index, references)
+
+        if do_gc:
+            self.updateReferences(references, packpos, self.file_end)
+            index = self.gc(index, references)
 
         output = OptionalSeekFile(self._name + ".pack", "w+b")
         output._freecache = _freefunc(output)
@@ -325,11 +326,16 @@ class PackProcess(FileStoragePacker):
         self._file.close()
 
 
-    def buildPackIndex(self, stop, file_end):
-        index = ZODB.fsIndex.fsIndex()
+    def buildPackIndex(self, stop, file_end, do_gc):
+        index = ZODB.fsIndex.fsIndex()        
         references = BTrees.LOBTree.LOBTree()
         pos = 4L
         packed = True
+        if do_gc:
+            update_refs = self._update_refs
+        else:
+            update_refs = lambda dh, references: None
+            
         while pos < file_end:
             th = self._read_txn_header(pos)
             if th.tid > stop:
@@ -348,7 +354,7 @@ class PackProcess(FileStoragePacker):
                 if dh.version:
                     self.fail(pos, "Versions are not supported")
                 index[dh.oid] = pos
-                self._update_refs(dh, references)
+                update_refs(dh, references)
                 pos += dh.recordlen()
 
             tlen = self._read_num(pos)
