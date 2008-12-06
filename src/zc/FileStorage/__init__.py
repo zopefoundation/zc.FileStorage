@@ -328,8 +328,8 @@ class PackProcess(FileStoragePacker):
 
 
     def buildPackIndex(self, stop, file_end, do_gc):
-        index = ZODB.fsIndex.fsIndex()        
-        references = BTrees.LOBTree.LOBTree()
+        index = ZODB.fsIndex.fsIndex()
+        references = MemoryReferences()
         pos = 4L
         packed = True
         if do_gc:
@@ -398,64 +398,33 @@ class PackProcess(FileStoragePacker):
             pos += 8
 
     def _update_refs(self, dh, references, merge=False):
+        oid = u64(dh.oid)
+
         # Chase backpointers until we get to the record with the refs
         while dh.back:
             dh = self._read_data_header(dh.back)
 
-        ioid1, ioid2 = divmod(u64(dh.oid), 2147483648L)
-        ioid2 = int(ioid2)
-
-        references_ioid1 = references.get(ioid1)
-        if references_ioid1 is None:
-            references_ioid1 = references[ioid1] = (
-                _ILBTree.ILBTree(), BTrees.IOBTree.IOBTree()
-                )
-
-        if merge:
-            initial = references_ioid1[0].get(ioid2)
-            if initial is None:
-                initial = references_ioid1[1].get(ioid2)
-        else:
-            initial = None
-
-
         if dh.plen:
             refs = referencesf(self._file.read(dh.plen))
             if refs:
-                if initial is not None:
-                    refs = set(map(u64, refs))
-                    if initial.__class__ is tuple:
+                if merge:
+                    initial = references.get(oid)
+                    if initial:
+                        refs = set(refs)
                         refs.update(initial)
-                    else:
-                        refs.add(initial)
-                    if len(refs) == 1:
-                        references_ioid1[0][ioid2] = refs.pop()
-                        references_ioid1[1].pop(ioid2, None)
-                    else:
-                        references_ioid1[1][ioid2] = tuple(refs)
-                        references_ioid1[0].pop(ioid2, None)
-                else:
-                    if len(refs) == 1:
-                        references_ioid1[0][ioid2] = u64(refs.pop())
-                        references_ioid1[1].pop(ioid2, None)
-                    else:
-                        refs = set(map(u64, refs))
-                        if len(refs) == 1:
-                            references_ioid1[0][ioid2] = refs.pop()
-                            references_ioid1[1].pop(ioid2, None)
-                        else:
-                            references_ioid1[1][ioid2] = tuple(refs)
-                            references_ioid1[0].pop(ioid2, None)
+                        refs = list(refs)
+                references[oid] = refs
                 return
 
-        if (not merge) and references_ioid1[0].pop(ioid2, None) is None:
-            references_ioid1[1].pop(ioid2, None)
+        if not merge:
+            references.rmf(oid)
                 
     def gc(self, index, references):
-        to_do = [0]
+        to_do = BTrees.LOBTree.TreeSet([0])
         reachable = ZODB.fsIndex.fsIndex()
         while to_do:
-            ioid = to_do.pop()
+            ioid = to_do.maxKey()
+            to_do.remove(ioid)
             oid = p64(ioid)
             if oid in reachable:
                 continue
@@ -464,23 +433,12 @@ class PackProcess(FileStoragePacker):
             # after the pack time.  These include references to
             # objects created after the pack time, which won't be
             # in the index.
-            try:
-                reachable[oid] = index[oid]
-            except KeyError:
-                pass
+            reachable[oid] = index.get(oid, 0)
 
-            ioid1, ioid2 = divmod(ioid, 2147483648L)
-
-            references_ioid1 = references.get(ioid1)
-            if references_ioid1:
-                ioid2 = int(ioid2)
-                ref = references_ioid1[0].get(ioid2)
-                if ref is not None:
-                    to_do.append(ref)
-                else:
-                    refs = references_ioid1[1].get(ioid2)
-                    if refs:
-                        to_do.extend(refs)
+            for ref in references.get(ioid):
+                iref = u64(ref)
+                if (iref not in to_do) and (ref not in reachable):
+                    to_do.insert(iref)
                 
         references.clear()
         return reachable
@@ -581,3 +539,58 @@ def _freefunc(f):
             _zc_FileStorage_posix_fadvise.POSIX_FADV_DONTNEED)
 
     return _free
+
+class MemoryReferences:
+
+    def __init__(self):
+        self.references = BTrees.LOBTree.LOBTree()
+        self.clear = self.references.clear
+
+    def get(self, oid):
+        references = self.references
+        ioid1, ioid2 = divmod(oid, 2147483648L)
+
+        references_ioid1 = references.get(ioid1)
+        if not references_ioid1:
+            return ()
+
+        ioid2 = int(ioid2)
+        result = references_ioid1[0].get(ioid2)
+        if result:
+            return [p64(result)]
+        return references_ioid1[1].get(ioid2, ())
+
+    def __setitem__(self, oid, refs):
+        references = self.references
+        ioid1, ioid2 = divmod(oid, 2147483648L)
+        ioid2 = int(ioid2)
+        references_ioid1 = references.get(ioid1)
+        if references_ioid1 is None:
+            references_ioid1 = references[ioid1] = (
+                _ILBTree.ILBTree(),      # {ioid2 -> single_referenced_oid}
+                BTrees.IOBTree.IOBTree() # {ioid2 -> referenced_oids}
+                )
+
+        if len(refs) == 1:
+            references_ioid1[0][ioid2] = u64(refs.pop())
+            references_ioid1[1].pop(ioid2, None)
+        else:
+            references_ioid1[1][ioid2] = refs
+            references_ioid1[0].pop(ioid2, None)
+            
+    def rmf(self, oid):
+        # Remove the oid, if present
+        ioid1, ioid2 = divmod(oid, 2147483648L)
+        references_ioid1 = self.references.get(ioid1)
+        if not references_ioid1:
+            return
+
+        ioid2 = int(ioid2)
+        if references_ioid1[0].pop(ioid2, None) is None:
+            references_ioid1[1].pop(ioid2, None)
+        
+
+
+
+        
+    
