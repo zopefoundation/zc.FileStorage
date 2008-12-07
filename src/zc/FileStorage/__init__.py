@@ -13,9 +13,12 @@
 ##############################################################################
 
 import cPickle
+import logging
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 
 from ZODB.FileStorage.format import FileStorageFormatter, CorruptedDataError
 from ZODB.serialize import referencesf
@@ -244,17 +247,24 @@ class PackCopier(ZODB.FileStorage.fspack.PackCopier):
 
 pack_script_template = """
 
-import sys
+import sys, logging
 
 sys.path[:] = %(syspath)r
 
 import cPickle
 import zc.FileStorage
 
+logging.getLogger().setLevel(logging.INFO)
+handler = logging.FileHandler(%(path)r+'.packlog')
+handler.setFormatter(logging.Formatter(
+   '%%(asctime)s %%(name)s %%(levelname)s %%(message)s'))
+logging.getLogger().addHandler(handler)
+
 try:
     packer = zc.FileStorage.PackProcess(%(path)r, %(stop)r, %(size)r)
     packer.pack()
 except Exception, v:
+    logging.exception('packing')
     try:
         v = cPickle.dumps(v)
     except Exception:
@@ -293,18 +303,24 @@ class PackProcess(FileStoragePacker):
         return FileStoragePacker._read_txn_header(self, pos, tid)
 
     def pack(self):
+        logging.info('started')
         do_gc = not os.path.exists(self._name+'.packnogc')
         packed, index, references, packpos = self.buildPackIndex(
             self._stop, self.file_end, do_gc)
         if packed:
             # nothing to do
+            logging.info('done, nothing to do')
             self._file.close()
             return
 
         if do_gc:
+            logging.info('read to end for gc')
             self.updateReferences(references, packpos, self.file_end)
+            logging.info('gc')
             index = self.gc(index, references)
 
+        
+        logging.info('copy to pack time')
         output = OptionalSeekFile(self._name + ".pack", "w+b")
         output._freecache = _freefunc(output)
         index, new_pos = self.copyToPacktime(packpos, index, output)
@@ -313,8 +329,10 @@ class PackProcess(FileStoragePacker):
             self._file.close()
             output.close()
             os.remove(self._name + ".pack")
+            logging.info('done, no decrease')
             return
 
+        logging.info('copy from pack time')
         self.copyFromPacktime(packpos, self.file_end, output, index)
 
         # Save the index so the parent process can use it as a starting point.
@@ -330,6 +348,7 @@ class PackProcess(FileStoragePacker):
     def buildPackIndex(self, stop, file_end, do_gc):
         index = ZODB.fsIndex.fsIndex()
         references = MemoryReferences()
+        references = FileReferences(self._name)
         pos = 4L
         packed = True
         if do_gc:
@@ -540,6 +559,7 @@ def _freefunc(f):
 
     return _free
 
+
 class MemoryReferences:
 
     def __init__(self):
@@ -590,7 +610,45 @@ class MemoryReferences:
             references_ioid1[1].pop(ioid2, None)
         
 
+class FileReferences:
+
+    def __init__(self, path):
+        self._tmp = tempfile.mkdtemp('.refs', dir=os.path.dirname(path))
+        self._path = self._data = None
+
+    def clear(self):
+        shutil.rmtree(self._tmp)
+
+    def _load(self, oid):
+        base, index = divmod(long(oid), 256)
+        path = os.path.join(self._tmp, hex(base))
+        if path != self._path:
+            try:
+                f = open(path, 'rb')
+            except IOError:
+                assert not os.path.exists(path)
+                data = {}
+            else:
+                data = cPickle.Unpickler(f).load()
+                f.close()
+            self._data = data
+            self._path = path
+        return self._data, index
+
+    def get(self, oid):
+        data, index = self._load(oid)
+        return data.get(index, ())
+
+    def __setitem__(self, oid, refs):
+        data, index = self._load(oid)
+        if set(refs) != set(data.get(index, ())):
+            data[index] = refs
+            cPickle.Pickler(open(self._path, 'wb'), 1).dump(data)
 
 
-        
-    
+    def rmf(self, oid):
+        data, index = self._load(oid)
+        if index in data:
+            del data[index]
+            cPickle.Pickler(open(self._path, 'wb'), 1).dump(data)
+            
