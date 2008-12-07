@@ -14,11 +14,13 @@
 
 import cPickle
 import logging
+import marshal
 import os
 import shutil
 import subprocess
 import sys
-import tempfile
+
+import zc.FileStorage.mru
 
 from ZODB.FileStorage.format import FileStorageFormatter, CorruptedDataError
 from ZODB.serialize import referencesf
@@ -29,6 +31,7 @@ import BTrees.IOBTree, BTrees.LOBTree, _ILBTree
 import ZODB.FileStorage
 import ZODB.FileStorage.fspack
 import ZODB.fsIndex
+import ZODB.TimeStamp
 
 class OptionalSeekFile(file):
     """File that doesn't seek to current position.
@@ -77,7 +80,13 @@ class FileStoragePacker(FileStorageFormatter):
             stop = self._stop,
             size = self.file_end,
             syspath = sys.path,
+            fr_cache_size = FileReferences.cache_size,
+            fr_entry_size = FileReferences.entry_size,
             ))
+        for name in 'error', 'log':
+            name = self._name+'.pack'+name
+            if os.path.exists(name):
+                os.remove(name)
         proc = subprocess.Popen(
             (sys.executable, script),
             stdin=subprocess.PIPE,
@@ -260,6 +269,10 @@ handler.setFormatter(logging.Formatter(
    '%%(asctime)s %%(name)s %%(levelname)s %%(message)s'))
 logging.getLogger().addHandler(handler)
 
+# The next 2 lines support testing:
+zc.FileStorage.FileReferences.cache_size = %(fr_cache_size)s
+zc.FileStorage.FileReferences.entry_size = %(fr_entry_size)s
+
 try:
     packer = zc.FileStorage.PackProcess(%(path)r, %(stop)r, %(size)r)
     packer.pack()
@@ -297,16 +310,34 @@ class PackProcess(FileStoragePacker):
         self.ltid = z64
 
         self._freecache = _freefunc(self._file)
+        logging.info('packing to %s',
+                     ZODB.TimeStamp.TimeStamp(self._stop))
 
     def _read_txn_header(self, pos, tid=None):
         self._freecache(pos)
         return FileStoragePacker._read_txn_header(self, pos, tid)
 
+    def _log_memory(self): # only on linux, oh well
+        status_path = "/proc/%s/status" % os.getpid()
+        if not os.path.exists(status_path):
+            return
+        try:
+            f = open(status_path)
+        except IOError:
+            return
+
+        for line in f:
+            for name in ('Peak', 'Size', 'RSS'):
+                if line.startswith('Vm'+name):
+                    logging.info(line.strip())
+                
+
     def pack(self):
-        logging.info('started')
         do_gc = not os.path.exists(self._name+'.packnogc')
         packed, index, references, packpos = self.buildPackIndex(
             self._stop, self.file_end, do_gc)
+        logging.info('initial scan %s objects at %s', len(index), packpos)
+        self._log_memory()
         if packed:
             # nothing to do
             logging.info('done, nothing to do')
@@ -320,10 +351,12 @@ class PackProcess(FileStoragePacker):
             index = self.gc(index, references)
 
         
+        self._log_memory()
         logging.info('copy to pack time')
         output = OptionalSeekFile(self._name + ".pack", "w+b")
         output._freecache = _freefunc(output)
         index, new_pos = self.copyToPacktime(packpos, index, output)
+        self._log_memory()
         if new_pos == packpos:
             # pack didn't free any data.  there's no point in continuing.
             self._file.close()
@@ -334,6 +367,7 @@ class PackProcess(FileStoragePacker):
 
         logging.info('copy from pack time')
         self.copyFromPacktime(packpos, self.file_end, output, index)
+        self._log_memory()
 
         # Save the index so the parent process can use it as a starting point.
         f = open(self._name + ".packindex", 'wb')
@@ -347,8 +381,7 @@ class PackProcess(FileStoragePacker):
 
     def buildPackIndex(self, stop, file_end, do_gc):
         index = ZODB.fsIndex.fsIndex()
-        references = MemoryReferences()
-        references = FileReferences(self._name)
+        references = self.ReferencesClass(self._name)
         pos = 4L
         packed = True
         if do_gc:
@@ -562,7 +595,7 @@ def _freefunc(f):
 
 class MemoryReferences:
 
-    def __init__(self):
+    def __init__(self, path):
         self.references = BTrees.LOBTree.LOBTree()
         self.clear = self.references.clear
 
@@ -612,28 +645,33 @@ class MemoryReferences:
 
 class FileReferences:
 
+    cache_size = 999
+    entry_size = 256
+
     def __init__(self, path):
-        self._tmp = tempfile.mkdtemp('.refs', dir=os.path.dirname(path))
-        self._path = self._data = None
+        self._cache = zc.FileStorage.mru.MRU(self.cache_size,
+                                             lambda k, v: v.save())
+        path += '.refs'
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        os.mkdir(path)
+        self._tmp = path
 
     def clear(self):
+        cache = self._cache
+        for k in cache:
+            cache[k].dirty = False
+        self._cache.clear()
         shutil.rmtree(self._tmp)
 
     def _load(self, oid):
-        base, index = divmod(long(oid), 256)
-        path = os.path.join(self._tmp, hex(base))
-        if path != self._path:
-            try:
-                f = open(path, 'rb')
-            except IOError:
-                assert not os.path.exists(path)
-                data = {}
-            else:
-                data = cPickle.Unpickler(f).load()
-                f.close()
-            self._data = data
-            self._path = path
-        return self._data, index
+        base, index = divmod(long(oid), self.entry_size)
+        key = hex(base)[2:-1]
+        data = self._cache.get(key)
+        if data is None:
+            data = _refdata(os.path.join(self._tmp, key))
+            self._cache[key] = data
+        return data, index
 
     def get(self, oid):
         data, index = self._load(oid)
@@ -643,12 +681,31 @@ class FileReferences:
         data, index = self._load(oid)
         if set(refs) != set(data.get(index, ())):
             data[index] = refs
-            cPickle.Pickler(open(self._path, 'wb'), 1).dump(data)
-
 
     def rmf(self, oid):
         data, index = self._load(oid)
         if index in data:
             del data[index]
-            cPickle.Pickler(open(self._path, 'wb'), 1).dump(data)
-            
+
+class _refdata(dict):
+    
+    def __init__(self, path):
+        self.path = path
+        if os.path.exists(path):
+            self.update(marshal.load(open(path, 'rb')))
+        self.dirty = False
+
+    def save(self):
+        if self.dirty:
+            marshal.dump(dict(self), open(self.path, 'wb'))
+            self.dirty = False
+
+    def __setitem__(self, key, value):
+        self.dirty = True
+        dict.__setitem__(self, key, value)
+
+    def __delitem__(self, key):
+        self.dirty = True
+        dict.__delitem__(self, key)
+
+PackProcess.ReferencesClass = FileReferences

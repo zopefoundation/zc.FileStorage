@@ -22,6 +22,7 @@
 
 import os
 import unittest
+from zope.testing import doctest
 
 from ZODB.tests.testFileStorage import * # :-P
 from ZODB.tests.PackableStorage import * # :-P
@@ -137,7 +138,11 @@ class NoGCFileStorageTests(FileStorageTests):
     def checkPackWithGCOnDestinationAfterRestore(self):
         pass
 
-def test_suite():
-    return unittest.TestSuite(unittest.makeSuite(NoGCFileStorageTests, "check"))
+    def checkPackWithMultiDatabaseReferences(self):
+        pass
 
-    
+def test_suite():
+    suite = unittest.TestSuite()
+    suite.addTest(unittest.makeSuite(NoGCFileStorageTests, "check"))
+    suite.addTest(doctest.DocFileSuite('mru.txt'))
+    return suite
