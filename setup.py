@@ -1,10 +1,11 @@
+name, version = 'zc.FileStorage', 0
+
 from setuptools import setup, find_packages
 from distutils.core import Extension
 
-name = 'zc.FileStorage'
 setup(
     name = name,
-    version = '0.2dev',
+    version = version,
     author = 'Jim Fulton',
     author_email = 'jim@zope.com',
     description = 'New file-storage pack hack.',
