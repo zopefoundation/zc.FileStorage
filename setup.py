@@ -1,4 +1,4 @@
-name, version = 'zc.FileStorage', 0
+name, version = 'zc.FileStorage', '0'
 
 from setuptools import setup, find_packages
 from distutils.core import Extension
