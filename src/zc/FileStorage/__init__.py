@@ -641,7 +641,11 @@ class MemoryReferences:
         ioid2 = int(ioid2)
         if references_ioid1[0].pop(ioid2, None) is None:
             references_ioid1[1].pop(ioid2, None)
-        
+
+def _rmtree_onerror(func, path, exc_info):
+    if os.path.exists(path):
+        raise exc_info[0], exc_info[1], exc_info[2]
+    logging.info('burp removing %s', path)
 
 class FileReferences:
 
@@ -653,7 +657,7 @@ class FileReferences:
                                              lambda k, v: v.save())
         path += '.refs'
         if os.path.isdir(path):
-            shutil.rmtree(path)
+            shutil.rmtree(path, onerror=_rmtree_onerror)
         os.mkdir(path)
         self._tmp = path
 
@@ -662,7 +666,7 @@ class FileReferences:
         for k in cache:
             cache[k].dirty = False
         self._cache.clear()
-        shutil.rmtree(self._tmp)
+        shutil.rmtree(self._tmp, onerror=_rmtree_onerror)
 
     def _load(self, oid):
         base, index = divmod(long(oid), self.entry_size)
