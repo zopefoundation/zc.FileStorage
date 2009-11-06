@@ -15,15 +15,11 @@ setup(
     ext_modules=[
         Extension('zc.FileStorage._zc_FileStorage_posix_fadvise',
                   ['src/zc/FileStorage/_zc_FileStorage_posix_fadvise.c']),
-        Extension('zc.FileStorage._ILBTree',
-                  ['src/zc/FileStorage/_ILBTree.c'],
-                  include_dirs=['3.8/src'],
-                  ),
         ],
     namespace_packages = ['zc'],
     package_dir = {'': 'src'},
     install_requires = ['setuptools',
-                        'ZODB3 >=3.8dev, <3.9dev'
+                        'ZODB3 >=3.9dev'
                         ],
     include_package_data = True,
     zip_safe = False,

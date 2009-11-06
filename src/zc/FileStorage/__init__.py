@@ -14,74 +14,63 @@
 
 import cPickle
 import logging
-import marshal
 import os
-import shutil
 import subprocess
 import sys
 
-import zc.FileStorage.mru
-
 from ZODB.FileStorage.format import FileStorageFormatter, CorruptedDataError
-from ZODB.serialize import referencesf
 from ZODB.utils import p64, u64, z64
 from ZODB.FileStorage.format import TRANS_HDR_LEN
 
-import BTrees.IOBTree, BTrees.LOBTree, _ILBTree
 import ZODB.FileStorage
 import ZODB.FileStorage.fspack
 import ZODB.fsIndex
 import ZODB.TimeStamp
 
-class OptionalSeekFile(file):
-    """File that doesn't seek to current position.
-
-    This is to try to avoid gobs of system calls.
-    """
-
-    def seek(self, pos, whence=0):
-        if whence or (pos != self.tell()):
-            file.seek(self, pos, whence)
-    
+def packer(storage, referencesf, stop, gc):
+    return FileStoragePacker(storage, stop).pack()
 
 class FileStoragePacker(FileStorageFormatter):
 
-    def __init__(self, path, stop, la, lr, cla, clr, current_size):
-        self._name = path
+    def __init__(self, storage, stop):
+        self.storage = storage
+        self._name = path = storage._file.name
+
         # We open our own handle on the storage so that much of pack can
         # proceed in parallel.  It's important to close this file at every
         # return point, else on Windows the caller won't be able to rename
         # or remove the storage file.
-
-        # We set the buffer quite high (32MB) to try to reduce seeks
-        # when the storage is disk is doing other io
-
-        self._file = OptionalSeekFile(path, "rb")
+        self._file = open(path, "rb")
 
         self._stop = stop
         self.locked = 0
-        self.file_end = current_size
 
         # The packer needs to acquire the parent's commit lock
         # during the copying stage, so the two sets of lock acquire
         # and release methods are passed to the constructor.
-        self._lock_acquire = la
-        self._lock_release = lr
-        self._commit_lock_acquire = cla
-        self._commit_lock_release = clr
+        self._lock_acquire = storage._lock_acquire
+        self._lock_release = storage._lock_release
+        self._commit_lock_acquire = storage._commit_lock_acquire
+        self._commit_lock_release = storage._commit_lock_release
+
+        self._lock_acquire()
+        try:
+            storage._file.seek(0, 2)
+            self.file_end = storage._file.tell()
+        finally:
+            self._lock_release()
 
         self.ltid = z64
 
     def pack(self):
-        
+
         script = self._name+'.packscript'
         open(script, 'w').write(pack_script_template % dict(
             path = self._name,
             stop = self._stop,
             size = self.file_end,
             syspath = sys.path,
-            fr_cache_size = FileReferences.cache_size,
-            fr_entry_size = FileReferences.entry_size,
+            blob_dir = self.storage.blob_dir,
             ))
         for name in 'error', 'log':
             name = self._name+'.pack'+name
@@ -93,7 +82,6 @@ class FileStoragePacker(FileStorageFormatter):
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             close_fds=True,
             )
-        
 
         proc.stdin.close()
         out = proc.stdout.read()
@@ -114,7 +102,7 @@ class FileStoragePacker(FileStorageFormatter):
         os.remove(packindex_path)
         os.remove(self._name+".packscript")
 
-        output = OptionalSeekFile(self._name + ".pack", "r+b")
+        output = open(self._name + ".pack", "r+b")
         output.seek(0, 2)
         assert output.tell() == opos
         self.copyRest(self.file_end, output, index)
@@ -123,16 +111,7 @@ class FileStoragePacker(FileStorageFormatter):
         pos = output.tell()
         output.close()
 
-        # Grrrrr. The caller wants these attrs
-        self.index = index
-        self.vindex = {}
-        self.tindex = {}
-        self.tvindex = {}
-        self.oid2tid = {}
-        self.toid2tid = {}
-        self.toid2tid_delete = {}
-
-        return pos
+        return pos, index
 
     def copyRest(self, input_pos, output, index):
         # Copy data records written since packing started.
@@ -151,7 +130,7 @@ class FileStoragePacker(FileStorageFormatter):
         # trailing 0 argument, and then on every platform except
         # native Windows it was observed that we could read stale
         # data from the tail end of the file.
-        self._file = OptionalSeekFile(self._name, "rb", 0)
+        self._file = open(self._name, "rb", 0)
         try:
             try:
                 while 1:
@@ -174,11 +153,11 @@ class FileStoragePacker(FileStorageFormatter):
     def _copyNewTrans(self, input_pos, output, index,
                       acquire=None, release=None):
         tindex = {}
-        copier = PackCopier(output, index, {}, tindex, {})
+        copier = PackCopier(output, index, tindex)
         th = self._read_txn_header(input_pos)
         if release is not None:
             release()
-            
+
         output_tpos = output.tell()
         copier.setTxnPos(output_tpos)
         output.write(th.asString())
@@ -197,10 +176,7 @@ class FileStoragePacker(FileStorageFormatter):
                 if h.back:
                     prev_txn = self.getTxnFromData(h.oid, h.back)
 
-            if h.version:
-                self.fail(pos, "Versions are not supported.")
-
-            copier.copy(h.oid, h.tid, data, '', prev_txn,
+            copier.copy(h.oid, h.tid, data, prev_txn,
                         output_tpos, output.tell())
 
             input_pos += h.recordlen()
@@ -229,10 +205,6 @@ class FileStoragePacker(FileStorageFormatter):
             return None
         data, tid = self._loadBackTxn(oid, back, 0)
         return data
-
-sys.modules['ZODB.FileStorage.FileStorage'
-            ].FileStoragePacker = FileStoragePacker
-ZODB.FileStorage.FileStorage.supportsVersions = lambda self: False
 
 class PackCopier(ZODB.FileStorage.fspack.PackCopier):
 
@@ -269,12 +241,9 @@ handler.setFormatter(logging.Formatter(
    '%%(asctime)s %%(name)s %%(levelname)s %%(message)s'))
 logging.getLogger().addHandler(handler)
 
-# The next 2 lines support testing:
-zc.FileStorage.FileReferences.cache_size = %(fr_cache_size)s
-zc.FileStorage.FileReferences.entry_size = %(fr_entry_size)s
-
 try:
-    packer = zc.FileStorage.PackProcess(%(path)r, %(stop)r, %(size)r)
+    packer = zc.FileStorage.PackProcess(%(path)r, %(stop)r, %(size)r,
+                                        %(blob_dir)r)
     packer.pack()
 except Exception, v:
     logging.exception('packing')
@@ -289,18 +258,20 @@ except Exception, v:
 
 class PackProcess(FileStoragePacker):
 
-    def __init__(self, path, stop, current_size):
+    def __init__(self, path, stop, current_size, blob_dir):
         self._name = path
         # We open our own handle on the storage so that much of pack can
         # proceed in parallel.  It's important to close this file at every
         # return point, else on Windows the caller won't be able to rename
         # or remove the storage file.
 
-        # We set the buffer quite high (32MB) to try to reduce seeks
-        # when the storage is disk is doing other io
+        if blob_dir:
+            self.pack_blobs = True
+            self.blob_removed = open(os.path.join(blob_dir, '.removed'), 'w')
+        else:
+            self.pack_blobs = False
 
-        
-        self._file = OptionalSeekFile(path, "rb")
+        self._file = open(path, "rb")
 
         self._name = path
         self._stop = stop
@@ -317,46 +288,19 @@ class PackProcess(FileStoragePacker):
         self._freecache(pos)
         return FileStoragePacker._read_txn_header(self, pos, tid)
 
-    def _log_memory(self): # only on linux, oh well
-        status_path = "/proc/%s/status" % os.getpid()
-        if not os.path.exists(status_path):
-            return
-        try:
-            f = open(status_path)
-        except IOError:
-            return
-
-        for line in f:
-            for name in ('Peak', 'Size', 'RSS'):
-                if line.startswith('Vm'+name):
-                    logging.info(line.strip())
-                
-
     def pack(self):
-        do_gc = not os.path.exists(self._name+'.packnogc')
-        packed, index, references, packpos = self.buildPackIndex(
-            self._stop, self.file_end, do_gc)
+        packed, index, packpos = self.buildPackIndex(self._stop, self.file_end)
         logging.info('initial scan %s objects at %s', len(index), packpos)
-        self._log_memory()
         if packed:
             # nothing to do
             logging.info('done, nothing to do')
             self._file.close()
             return
 
-        if do_gc:
-            logging.info('read to end for gc')
-            self.updateReferences(references, packpos, self.file_end)
-            logging.info('gc')
-            index = self.gc(index, references)
-
-        
-        self._log_memory()
         logging.info('copy to pack time')
-        output = OptionalSeekFile(self._name + ".pack", "w+b")
-        output._freecache = _freefunc(output)
+        output = open(self._name + ".pack", "w+b")
+        self._freecache = _freefunc(output)
         index, new_pos = self.copyToPacktime(packpos, index, output)
-        self._log_memory()
         if new_pos == packpos:
             # pack didn't free any data.  there's no point in continuing.
             self._file.close()
@@ -367,7 +311,6 @@ class PackProcess(FileStoragePacker):
 
         logging.info('copy from pack time')
         self.copyFromPacktime(packpos, self.file_end, output, index)
-        self._log_memory()
 
         # Save the index so the parent process can use it as a starting point.
         f = open(self._name + ".packindex", 'wb')
@@ -379,16 +322,11 @@ class PackProcess(FileStoragePacker):
         self._file.close()
 
 
-    def buildPackIndex(self, stop, file_end, do_gc):
+    def buildPackIndex(self, stop, file_end):
         index = ZODB.fsIndex.fsIndex()
-        references = self.ReferencesClass(self._name)
         pos = 4L
         packed = True
-        if do_gc:
-            update_refs = self._update_refs
-        else:
-            update_refs = lambda dh, references: None
-            
+
         while pos < file_end:
             th = self._read_txn_header(pos)
             if th.tid > stop:
@@ -404,10 +342,12 @@ class PackProcess(FileStoragePacker):
             while pos < end:
                 dh = self._read_data_header(pos)
                 self.checkData(th, tpos, dh, pos)
-                if dh.version:
-                    self.fail(pos, "Versions are not supported")
-                index[dh.oid] = pos
-                update_refs(dh, references)
+                if dh.plen or dh.back:
+                    index[dh.oid] = pos
+                else:
+                    # deleted
+                    if dh.oid in index:
+                        del index[dh.oid]
                 pos += dh.recordlen()
 
             tlen = self._read_num(pos)
@@ -417,89 +357,15 @@ class PackProcess(FileStoragePacker):
                           tlen, th.tlen)
             pos += 8
 
-        return packed, index, references, pos
-
-    def updateReferences(self, references, pos, file_end):
-
-        # Note that we don't update an index in this step.  This is
-        # because we don't care about objects created after the pack
-        # time.  We'll add those in a later phase. We only care about
-        # references to existing objects.
-        
-        while pos < file_end:
-            th = self._read_txn_header(pos)
-            self.checkTxn(th, pos)
-
-            tpos = pos
-            end = pos + th.tlen
-            pos += th.headerlen()
-
-            while pos < end:
-                dh = self._read_data_header(pos)
-                self.checkData(th, tpos, dh, pos)
-                if dh.version:
-                    self.fail(pos, "Versions are not supported")
-                self._update_refs(dh, references, 1)
-                pos += dh.recordlen()
-
-            tlen = self._read_num(pos)
-            if tlen != th.tlen:
-                self.fail(pos, "redundant transaction length does not "
-                          "match initial transaction length: %d != %d",
-                          tlen, th.tlen)
-            pos += 8
-
-    def _update_refs(self, dh, references, merge=False):
-        oid = u64(dh.oid)
-
-        # Chase backpointers until we get to the record with the refs
-        while dh.back:
-            dh = self._read_data_header(dh.back)
-
-        if dh.plen:
-            refs = referencesf(self._file.read(dh.plen))
-            if refs:
-                if merge:
-                    initial = references.get(oid)
-                    if initial:
-                        refs = set(refs)
-                        refs.update(initial)
-                        refs = list(refs)
-                references[oid] = refs
-                return
-
-        if not merge:
-            references.rmf(oid)
-                
-    def gc(self, index, references):
-        to_do = BTrees.LOBTree.TreeSet([0])
-        reachable = ZODB.fsIndex.fsIndex()
-        while to_do:
-            ioid = to_do.maxKey()
-            to_do.remove(ioid)
-            oid = p64(ioid)
-            if oid in reachable:
-                continue
-
-            # Note that the references include references made
-            # after the pack time.  These include references to
-            # objects created after the pack time, which won't be
-            # in the index.
-            reachable[oid] = index.get(oid, 0)
-
-            for ref in references.get(ioid):
-                iref = u64(ref)
-                if (iref not in to_do) and (ref not in reachable):
-                    to_do.insert(iref)
-                
-        references.clear()
-        return reachable
+        return packed, index, pos
 
     def copyToPacktime(self, packpos, index, output):
         pos = new_pos = self._metadata_size
         self._file.seek(0)
         output.write(self._file.read(self._metadata_size))
         new_index = ZODB.fsIndex.fsIndex()
+        pack_blobs = self.pack_blobs
+        is_blob_record = ZODB.blob.is_blob_record
 
         while pos < packpos:
             th = self._read_txn_header(pos)
@@ -510,6 +376,35 @@ class PackProcess(FileStoragePacker):
                 h = self._read_data_header(pos)
                 if index.get(h.oid) != pos:
                     pos += h.recordlen()
+                    if pack_blobs:
+                        if h.plen:
+                            data = self._file.read(h.plen)
+                        else:
+                            data = self.fetchDataViaBackpointer(h.oid, h.back)
+                        if data and is_blob_record(data):
+                            # We need to remove the blob record. Maybe we
+                            # need to remove oid.
+
+                            # But first, we need to make sure the
+                            # record we're looking at isn't a dup of
+                            # the current record. There's a bug in ZEO
+                            # blob support that causes duplicate data
+                            # records.
+                            rpos = index.get(h.oid)
+                            is_dup = (rpos and
+                                      self._read_data_header(rpos).tid == h.tid)
+                            if not is_dup:
+                                # Note that we delete the revision.
+                                # If rpos was None, then we could
+                                # remove the oid.  What if somehow,
+                                # another blob update happened after
+                                # the deletion. This shouldn't happen,
+                                # but we can leave it to the cleanup
+                                # code to take care of removing the
+                                # directory for us.
+                                self.blob_removed.write(
+                                    (h.oid+h.tid).encode('hex')+'\n')
+
                     continue
 
                 pos += h.recordlen()
@@ -555,17 +450,29 @@ class PackProcess(FileStoragePacker):
                     output.write(tlen)
                     output.seek(new_pos)
 
-                output._freecache(new_pos)
-                
+                self._freecache(new_pos)
+
 
             pos += 8
 
         return new_index, new_pos
 
+    def fetchDataViaBackpointer(self, oid, back):
+        """Return the data for oid via backpointer back
+
+        If `back` is 0 or ultimately resolves to 0, return None.
+        In this case, the transaction undoes the object
+        creation.
+        """
+        if back == 0:
+            return None
+        data, tid = self._loadBackTxn(oid, back, 0)
+        return data
+
     def copyFromPacktime(self, input_pos, file_end, output, index):
         while input_pos < file_end:
             input_pos = self._copyNewTrans(input_pos, output, index)
-            output._freecache(output.tell())
+            self._freecache(output.tell())
         return input_pos
 
 
@@ -591,125 +498,3 @@ def _freefunc(f):
             _zc_FileStorage_posix_fadvise.POSIX_FADV_DONTNEED)
 
     return _free
-
-
-class MemoryReferences:
-
-    def __init__(self, path):
-        self.references = BTrees.LOBTree.LOBTree()
-        self.clear = self.references.clear
-
-    def get(self, oid):
-        references = self.references
-        ioid1, ioid2 = divmod(oid, 2147483648L)
-
-        references_ioid1 = references.get(ioid1)
-        if not references_ioid1:
-            return ()
-
-        ioid2 = int(ioid2)
-        result = references_ioid1[0].get(ioid2)
-        if result:
-            return [p64(result)]
-        return references_ioid1[1].get(ioid2, ())
-
-    def __setitem__(self, oid, refs):
-        references = self.references
-        ioid1, ioid2 = divmod(oid, 2147483648L)
-        ioid2 = int(ioid2)
-        references_ioid1 = references.get(ioid1)
-        if references_ioid1 is None:
-            references_ioid1 = references[ioid1] = (
-                _ILBTree.ILBTree(),      # {ioid2 -> single_referenced_oid}
-                BTrees.IOBTree.IOBTree() # {ioid2 -> referenced_oids}
-                )
-
-        if len(refs) == 1:
-            references_ioid1[0][ioid2] = u64(refs.pop())
-            references_ioid1[1].pop(ioid2, None)
-        else:
-            references_ioid1[1][ioid2] = refs
-            references_ioid1[0].pop(ioid2, None)
-            
-    def rmf(self, oid):
-        # Remove the oid, if present
-        ioid1, ioid2 = divmod(oid, 2147483648L)
-        references_ioid1 = self.references.get(ioid1)
-        if not references_ioid1:
-            return
-
-        ioid2 = int(ioid2)
-        if references_ioid1[0].pop(ioid2, None) is None:
-            references_ioid1[1].pop(ioid2, None)
-
-def _rmtree_onerror(func, path, exc_info):
-    if os.path.exists(path):
-        raise exc_info[0], exc_info[1], exc_info[2]
-    logging.info('burp removing %s', path)
-
-class FileReferences:
-
-    cache_size = 999
-    entry_size = 256
-
-    def __init__(self, path):
-        self._cache = zc.FileStorage.mru.MRU(self.cache_size,
-                                             lambda k, v: v.save())
-        path += '.refs'
-        if os.path.isdir(path):
-            shutil.rmtree(path, onerror=_rmtree_onerror)
-        os.mkdir(path)
-        self._tmp = path
-
-    def clear(self):
-        cache = self._cache
-        for k in cache:
-            cache[k].dirty = False
-        self._cache.clear()
-        shutil.rmtree(self._tmp, onerror=_rmtree_onerror)
-
-    def _load(self, oid):
-        base, index = divmod(long(oid), self.entry_size)
-        key = hex(base)[2:-1]
-        data = self._cache.get(key)
-        if data is None:
-            data = _refdata(os.path.join(self._tmp, key))
-            self._cache[key] = data
-        return data, index
-
-    def get(self, oid):
-        data, index = self._load(oid)
-        return data.get(index, ())
-
-    def __setitem__(self, oid, refs):
-        data, index = self._load(oid)
-        if set(refs) != set(data.get(index, ())):
-            data[index] = refs
-
-    def rmf(self, oid):
-        data, index = self._load(oid)
-        if index in data:
-            del data[index]
-
-class _refdata(dict):
-    
-    def __init__(self, path):
-        self.path = path
-        if os.path.exists(path):
-            self.update(marshal.load(open(path, 'rb')))
-        self.dirty = False
-
-    def save(self):
-        if self.dirty:
-            marshal.dump(dict(self), open(self.path, 'wb'))
-            self.dirty = False
-
-    def __setitem__(self, key, value):
-        self.dirty = True
-        dict.__setitem__(self, key, value)
-
-    def __delitem__(self, key):
-        self.dirty = True
-        dict.__delitem__(self, key)
-
-PackProcess.ReferencesClass = FileReferences

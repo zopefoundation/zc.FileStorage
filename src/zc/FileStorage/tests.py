@@ -19,27 +19,31 @@
 # tests affected by the lack of gc in pack.
 ##############################################################################
 
-
-import os
+import pickle
 import unittest
-from zope.testing import doctest
+import zc.FileStorage
+import ZODB.blob
+import ZODB.tests.testblob
 
 from ZODB.tests.testFileStorage import * # :-P
 from ZODB.tests.PackableStorage import * # :-P
 from ZODB.tests.TransactionalUndoStorage import * # :-P
 
-class NoGCFileStorageTests(FileStorageTests):
+from zope.testing import doctest, setupstack
+
+class ZCFileStorageTests(FileStorageTests):
+
+    blob_dir = None
 
     def setUp(self):
-        self.open(create=1)
-        self.__gcpath = os.path.abspath('FileStorageTests.fs.packnogc')
-        open(self.__gcpath, 'w')
+        self.open(create=1, packer=zc.FileStorage.packer,
+                  blob_dir=self.blob_dir)
 
     def tearDown(self):
         self._storage.close()
         self._storage.cleanup()
-        os.remove(self.__gcpath)
-
+        if self.blob_dir:
+            ZODB.blob.remove_committed_dir(self.blob_dir)
 
     def checkPackAllRevisions(self):
         self._initroot()
@@ -99,50 +103,22 @@ class NoGCFileStorageTests(FileStorageTests):
         # The undo log contains only the most resent transaction
         self.assertEqual(3, len(self._storage.undoLog()))
 
-
-    def checkTransactionalUndoAfterPack(self):
-        eq = self.assertEqual
-        # Add a few object revisions
-        oid = self._storage.new_oid()
-        revid1 = self._dostore(oid, data=MinPO(51))
-        snooze()
-        packtime = time.time()
-        snooze()                # time.time() now distinct from packtime
-        revid2 = self._dostore(oid, revid=revid1, data=MinPO(52))
-        self._dostore(oid, revid=revid2, data=MinPO(53))
-        # Now get the undo log
-        info = self._storage.undoInfo()
-        eq(len(info), 3)
-        tid = info[0]['id']
-        # Now pack just the initial revision of the object.  We need the
-        # second revision otherwise we won't be able to undo the third
-        # revision!
-        self._storage.pack(packtime, referencesf)
-        # Make some basic assertions about the undo information now
-        info2 = self._storage.undoInfo()
-        eq(len(info2), 3)
-        # And now attempt to undo the last transaction
-        t = Transaction()
-        self._storage.tpc_begin(t)
-        tid, oids = self._storage.undo(tid, t)
-        self._storage.tpc_vote(t)
-        self._storage.tpc_finish(t)
-        eq(len(oids), 1)
-        eq(oids[0], oid)
-        data, revid = self._storage.load(oid, '')
-        # The object must now be at the second state
-        eq(zodb_unpickle(data), MinPO(52))
-        self._iterate()
-
-    
     def checkPackWithGCOnDestinationAfterRestore(self):
         pass
 
     def checkPackWithMultiDatabaseReferences(self):
         pass
 
+class ZCFileStorageTestsWithBlobs(ZCFileStorageTests):
+
+    blob_dir = 'blobs'
+
 def test_suite():
     suite = unittest.TestSuite()
-    suite.addTest(unittest.makeSuite(NoGCFileStorageTests, "check"))
-    suite.addTest(doctest.DocFileSuite('mru.txt'))
+    suite.addTest(unittest.makeSuite(ZCFileStorageTests, "check"))
+    suite.addTest(unittest.makeSuite(ZCFileStorageTestsWithBlobs, "check"))
+    suite.addTest(doctest.DocFileSuite(
+        'blob_packing.txt',
+        setUp=setupstack.setUpDirectory, tearDown=setupstack.tearDown,
+        ))
     return suite
