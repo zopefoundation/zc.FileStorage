@@ -299,7 +299,7 @@ class PackProcess(FileStoragePacker):
 
         logging.info('copy to pack time')
         output = open(self._name + ".pack", "w+b")
-        self._freecache = _freefunc(output)
+        self._freeoutputcache = _freefunc(output)
         index, new_pos = self.copyToPacktime(packpos, index, output)
         if new_pos == packpos:
             # pack didn't free any data.  there's no point in continuing.
@@ -310,6 +310,7 @@ class PackProcess(FileStoragePacker):
             return
 
         logging.info('copy from pack time')
+        self._freecache = self._freeoutputcache = lambda pos: None
         self.copyFromPacktime(packpos, self.file_end, output, index)
 
         # Save the index so the parent process can use it as a starting point.
@@ -450,7 +451,7 @@ class PackProcess(FileStoragePacker):
                     output.write(tlen)
                     output.seek(new_pos)
 
-                self._freecache(new_pos)
+                self._freeoutputcache(new_pos)
 
 
             pos += 8
@@ -472,7 +473,7 @@ class PackProcess(FileStoragePacker):
     def copyFromPacktime(self, input_pos, file_end, output, index):
         while input_pos < file_end:
             input_pos = self._copyNewTrans(input_pos, output, index)
-            self._freecache(output.tell())
+            self._freeoutputcache(output.tell())
         return input_pos
 
 
