@@ -113,12 +113,196 @@ class ZCFileStorageTestsWithBlobs(ZCFileStorageTests):
 
     blob_dir = 'blobs'
 
+
+time_hack_template = """
+now = 1268166473.0
+import time
+
+time_time, time_sleep = time.time, time.sleep
+
+time.sleep(1) # Slow things down a bit to give the test time to commit
+
+def faux_time():
+    global now
+    now += 1
+    return now
+
+def faux_sleep(x):
+    logging.info('sleep '+`x`)
+
+time.time, time.sleep = faux_time, faux_sleep
+"""
+
+GIG_hack_template = """
+
+import sys
+
+sys.path[:] = %(syspath)r
+
+import zc.FileStorage
+zc.FileStorage.GIG = 100
+
+"""
+
+def test_pack_sleep():
+    """
+Make sure that sleep is being called. :)
+
+Mess with time -- there should be infrastructure for this!
+
+    >>> exec(time_hack_template)
+    >>> time.sleep = time_sleep
+
+    >>> import threading, transaction, shutil, ZODB.FileStorage, zc.FileStorage
+    >>> fs = ZODB.FileStorage.FileStorage('data.fs',
+    ...                                   packer=zc.FileStorage.packer1)
+    >>> db = ZODB.DB(fs)
+    >>> conn = db.open()
+    >>> for i in range(5):
+    ...     conn.root()[i] = conn.root().__class__()
+    ...     transaction.commit()
+    >>> pack_time = time.time()
+    >>> for i in range(5):
+    ...     conn.root()[i].x = 1
+    ...     transaction.commit()
+
+    >>> pack_script_template = zc.FileStorage.pack_script_template
+    >>> zc.FileStorage.pack_script_template = (
+    ...     time_hack_template + GIG_hack_template + pack_script_template)
+    >>> thread = threading.Thread(target=fs.pack, args=(pack_time, now))
+    >>> thread.start()
+    >>> for i in range(100):
+    ...     if os.path.exists('data.fs.packscript'):
+    ...        break
+    ...     time.sleep(0.01)
+    >>> def faux_sleep(x):
+    ...     print 'sleep '+`x`
+    >>> time.sleep = faux_sleep
+    >>> conn.root().x = 1
+    >>> transaction.commit()
+    >>> thread.join()
+    sleep 1.0
+
+    >>> fs.close()
+    >>> print open('data.fs.packlog').read(), # doctest: +NORMALIZE_WHITESPACE
+    2010-03-09 15:27:55,000 root INFO packing to 2010-03-09 20:28:06.000000,
+       sleep 1
+    2010-03-09 15:27:57,000 root INFO read 162
+    2010-03-09 15:27:59,000 root INFO sleep 2.0
+    2010-03-09 15:28:01,000 root INFO read 411
+    2010-03-09 15:28:03,000 root INFO sleep 2.0
+    2010-03-09 15:28:05,000 root INFO read 680
+    2010-03-09 15:28:07,000 root INFO sleep 2.0
+    2010-03-09 15:28:09,000 root INFO read 968
+    2010-03-09 15:28:11,000 root INFO sleep 2.0
+    2010-03-09 15:28:13,000 root INFO read 1275
+    2010-03-09 15:28:15,000 root INFO sleep 2.0
+    2010-03-09 15:28:17,000 root INFO read 1601
+    2010-03-09 15:28:19,000 root INFO sleep 2.0
+    2010-03-09 15:28:21,000 root INFO initial scan 6 objects at 1601
+    2010-03-09 15:28:22,000 root INFO copy to pack time
+    2010-03-09 15:28:24,000 root INFO read 162
+    2010-03-09 15:28:26,000 root INFO sleep 2.0
+    2010-03-09 15:28:28,000 root INFO read 411
+    2010-03-09 15:28:30,000 root INFO sleep 2.0
+    2010-03-09 15:28:32,000 root INFO read 680
+    2010-03-09 15:28:34,000 root INFO sleep 2.0
+    2010-03-09 15:28:36,000 root INFO read 968
+    2010-03-09 15:28:38,000 root INFO sleep 2.0
+    2010-03-09 15:28:40,000 root INFO read 1275
+    2010-03-09 15:28:42,000 root INFO sleep 2.0
+    2010-03-09 15:28:44,000 root INFO read 1601
+    2010-03-09 15:28:46,000 root INFO sleep 2.0
+    2010-03-09 15:28:47,000 root INFO copy from pack time
+    2010-03-09 15:28:51,000 root INFO sleep 1.0
+    2010-03-09 15:28:52,000 root INFO read 1737
+    2010-03-09 15:28:54,000 root INFO sleep 5.0
+    2010-03-09 15:28:58,000 root INFO sleep 1.0
+    2010-03-09 15:28:59,000 root INFO read 1873
+    2010-03-09 15:29:01,000 root INFO sleep 5.0
+    2010-03-09 15:29:05,000 root INFO sleep 1.0
+    2010-03-09 15:29:06,000 root INFO read 2009
+    2010-03-09 15:29:08,000 root INFO sleep 5.0
+    2010-03-09 15:29:12,000 root INFO sleep 1.0
+    2010-03-09 15:29:13,000 root INFO read 2145
+    2010-03-09 15:29:15,000 root INFO sleep 5.0
+    2010-03-09 15:29:19,000 root INFO sleep 1.0
+    2010-03-09 15:29:20,000 root INFO read 2281
+    2010-03-09 15:29:22,000 root INFO sleep 5.0
+    2010-03-09 15:29:23,000 root INFO packscript done
+
+    >>> time.sleep = time_sleep
+    >>> time.time = time_time
+
+Now do it all again with a longer sleep:
+
+    >>> shutil.copyfile('data.fs.old', 'data.fs')
+    >>> fs = ZODB.FileStorage.FileStorage('data.fs',
+    ...                                   packer=zc.FileStorage.packer2)
+    >>> fs.pack(pack_time, now)
+    >>> print open('data.fs.packlog').read(), # doctest: +NORMALIZE_WHITESPACE
+    2010-03-09 15:27:55,000 root INFO packing to 2010-03-09 20:28:06.000000,
+      sleep 2
+    2010-03-09 15:27:57,000 root INFO read 162
+    2010-03-09 15:27:59,000 root INFO sleep 4.0
+    2010-03-09 15:28:01,000 root INFO read 411
+    2010-03-09 15:28:03,000 root INFO sleep 4.0
+    2010-03-09 15:28:05,000 root INFO read 680
+    2010-03-09 15:28:07,000 root INFO sleep 4.0
+    2010-03-09 15:28:09,000 root INFO read 968
+    2010-03-09 15:28:11,000 root INFO sleep 4.0
+    2010-03-09 15:28:13,000 root INFO read 1275
+    2010-03-09 15:28:15,000 root INFO sleep 4.0
+    2010-03-09 15:28:17,000 root INFO read 1601
+    2010-03-09 15:28:19,000 root INFO sleep 4.0
+    2010-03-09 15:28:21,000 root INFO initial scan 6 objects at 1601
+    2010-03-09 15:28:22,000 root INFO copy to pack time
+    2010-03-09 15:28:24,000 root INFO read 162
+    2010-03-09 15:28:26,000 root INFO sleep 4.0
+    2010-03-09 15:28:28,000 root INFO read 411
+    2010-03-09 15:28:30,000 root INFO sleep 4.0
+    2010-03-09 15:28:32,000 root INFO read 680
+    2010-03-09 15:28:34,000 root INFO sleep 4.0
+    2010-03-09 15:28:36,000 root INFO read 968
+    2010-03-09 15:28:38,000 root INFO sleep 4.0
+    2010-03-09 15:28:40,000 root INFO read 1275
+    2010-03-09 15:28:42,000 root INFO sleep 4.0
+    2010-03-09 15:28:44,000 root INFO read 1601
+    2010-03-09 15:28:46,000 root INFO sleep 4.0
+    2010-03-09 15:28:47,000 root INFO copy from pack time
+    2010-03-09 15:28:51,000 root INFO sleep 2.0
+    2010-03-09 15:28:52,000 root INFO read 1737
+    2010-03-09 15:28:54,000 root INFO sleep 10.0
+    2010-03-09 15:28:58,000 root INFO sleep 2.0
+    2010-03-09 15:28:59,000 root INFO read 1873
+    2010-03-09 15:29:01,000 root INFO sleep 10.0
+    2010-03-09 15:29:05,000 root INFO sleep 2.0
+    2010-03-09 15:29:06,000 root INFO read 2009
+    2010-03-09 15:29:08,000 root INFO sleep 10.0
+    2010-03-09 15:29:12,000 root INFO sleep 2.0
+    2010-03-09 15:29:13,000 root INFO read 2145
+    2010-03-09 15:29:15,000 root INFO sleep 10.0
+    2010-03-09 15:29:19,000 root INFO sleep 2.0
+    2010-03-09 15:29:20,000 root INFO read 2281
+    2010-03-09 15:29:22,000 root INFO sleep 10.0
+    2010-03-09 15:29:26,000 root INFO sleep 2.0
+    2010-03-09 15:29:27,000 root INFO read 2514
+    2010-03-09 15:29:29,000 root INFO sleep 10.0
+    2010-03-09 15:29:30,000 root INFO packscript done
+
+    >>> zc.FileStorage.pack_script_template = pack_script_template
+
+    """
+
 def test_suite():
     suite = unittest.TestSuite()
     suite.addTest(unittest.makeSuite(ZCFileStorageTests, "check"))
     suite.addTest(unittest.makeSuite(ZCFileStorageTestsWithBlobs, "check"))
     suite.addTest(doctest.DocFileSuite(
         'blob_packing.txt',
+        setUp=setupstack.setUpDirectory, tearDown=setupstack.tearDown,
+        ))
+    suite.addTest(doctest.DocTestSuite(
         setUp=setupstack.setUpDirectory, tearDown=setupstack.tearDown,
         ))
     return suite

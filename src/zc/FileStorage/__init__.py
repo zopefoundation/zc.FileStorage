@@ -17,6 +17,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 
 from ZODB.FileStorage.format import FileStorageFormatter, CorruptedDataError
 from ZODB.utils import p64, u64, z64
@@ -27,14 +28,25 @@ import ZODB.FileStorage.fspack
 import ZODB.fsIndex
 import ZODB.TimeStamp
 
-def packer(storage, referencesf, stop, gc):
-    return FileStoragePacker(storage, stop).pack()
+GIG = 1<<30
+
+def meta_packer(sleep):
+    def packer(storage, referencesf, stop, gc):
+        return FileStoragePacker(storage, stop, sleep).pack()
+    return packer
+
+packer = meta_packer(0)
+packer1 = meta_packer(1)
+packer2 = meta_packer(2)
+packer4 = meta_packer(3)
+packer8 = meta_packer(4)
 
 class FileStoragePacker(FileStorageFormatter):
 
-    def __init__(self, storage, stop):
+    def __init__(self, storage, stop, sleep=0):
         self.storage = storage
         self._name = path = storage._file.name
+        self.sleep = sleep
 
         # We open our own handle on the storage so that much of pack can
         # proceed in parallel.  It's important to close this file at every
@@ -71,6 +83,7 @@ class FileStoragePacker(FileStorageFormatter):
             size = self.file_end,
             syspath = sys.path,
             blob_dir = self.storage.blob_dir,
+            sleep = self.sleep,
             ))
         for name in 'error', 'log':
             name = self._name+'.pack'+name
@@ -158,6 +171,7 @@ class FileStoragePacker(FileStorageFormatter):
         if release is not None:
             release()
 
+        start_time = time.time()
         output_tpos = output.tell()
         copier.setTxnPos(output_tpos)
         output.write(th.asString())
@@ -194,6 +208,7 @@ class FileStoragePacker(FileStorageFormatter):
 
         index.update(tindex)
         tindex.clear()
+        time.sleep((time.time()-start_time)*self.sleep)
 
         if acquire is not None:
             acquire()
@@ -243,7 +258,7 @@ logging.getLogger().addHandler(handler)
 
 try:
     packer = zc.FileStorage.PackProcess(%(path)r, %(stop)r, %(size)r,
-                                        %(blob_dir)r)
+                                        %(blob_dir)r, %(sleep)s)
     packer.pack()
 except Exception, v:
     logging.exception('packing')
@@ -258,7 +273,7 @@ except Exception, v:
 
 class PackProcess(FileStoragePacker):
 
-    def __init__(self, path, stop, current_size, blob_dir):
+    def __init__(self, path, stop, current_size, blob_dir, sleep):
         self._name = path
         # We open our own handle on the storage so that much of pack can
         # proceed in parallel.  It's important to close this file at every
@@ -281,8 +296,11 @@ class PackProcess(FileStoragePacker):
         self.ltid = z64
 
         self._freecache = _freefunc(self._file)
-        logging.info('packing to %s',
-                     ZODB.TimeStamp.TimeStamp(self._stop))
+        self.sleep = sleep
+        logging.info('packing to %s, sleep %s',
+                     ZODB.TimeStamp.TimeStamp(self._stop),
+                     self.sleep)
+
 
     def _read_txn_header(self, pos, tid=None):
         self._freecache(pos)
@@ -321,14 +339,17 @@ class PackProcess(FileStoragePacker):
         os.fsync(output.fileno())
         output.close()
         self._file.close()
+        logging.info('packscript done')
 
 
     def buildPackIndex(self, stop, file_end):
         index = ZODB.fsIndex.fsIndex()
         pos = 4L
         packed = True
+        log_pos = pos
 
         while pos < file_end:
+            start_time = time.time()
             th = self._read_txn_header(pos)
             if th.tid > stop:
                 break
@@ -358,6 +379,12 @@ class PackProcess(FileStoragePacker):
                           tlen, th.tlen)
             pos += 8
 
+            if pos - log_pos > GIG:
+                logging.info("read %s" % pos)
+                log_pos = pos
+
+            time.sleep((time.time()-start_time)*self.sleep)
+
         return packed, index, pos
 
     def copyToPacktime(self, packpos, index, output):
@@ -368,7 +395,10 @@ class PackProcess(FileStoragePacker):
         pack_blobs = self.pack_blobs
         is_blob_record = ZODB.blob.is_blob_record
 
+        log_pos = pos
+
         while pos < packpos:
+            start_time = time.time()
             th = self._read_txn_header(pos)
             new_tpos = 0L
             tend = pos + th.tlen
@@ -456,6 +486,12 @@ class PackProcess(FileStoragePacker):
 
             pos += 8
 
+            if pos - log_pos > GIG:
+                logging.info("read %s" % pos)
+                log_pos = pos
+
+            time.sleep((time.time()-start_time)*self.sleep)
+
         return new_index, new_pos
 
     def fetchDataViaBackpointer(self, oid, back):
@@ -470,11 +506,20 @@ class PackProcess(FileStoragePacker):
         data, tid = self._loadBackTxn(oid, back, 0)
         return data
 
-    def copyFromPacktime(self, input_pos, file_end, output, index):
-        while input_pos < file_end:
-            input_pos = self._copyNewTrans(input_pos, output, index)
+    def copyFromPacktime(self, pos, file_end, output, index):
+
+        log_pos = pos
+        while pos < file_end:
+            start_time = time.time()
+            pos = self._copyNewTrans(pos, output, index)
             self._freeoutputcache(output.tell())
-        return input_pos
+
+            if pos - log_pos > GIG:
+                logging.info("read %s" % pos)
+                log_pos = pos
+
+            time.sleep((time.time()-start_time)*self.sleep)
+        return pos
 
 
 def _freefunc(f):

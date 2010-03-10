@@ -1,0 +1,17 @@
+
+1.1.0 (1010-03-10)
+==================
+
+- Improved use of posix_fadvise (where available)
+
+- Provided an option to rest between transactions to try to avoid
+  excessive stress on the storage server.
+
+- Provided some progress logging (every GIG) in the pack log.
+
+1.0.0 (2009-11-06)
+==================
+
+Updated to work with ZODB 3.9.
+
+Removed GC support, since that is now provided by zc.zodbdgc.
