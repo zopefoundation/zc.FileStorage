@@ -1,4 +1,15 @@
 
+1.2.0 (1010-05-21)
+==================
+
+- Now (ZODB 3.10) that the filestorage packer option can take
+  expressions, expose a packer factory, ``Packer``.
+
+- In addition to a sleep argument, to control resting between
+  transactions, provide transform and untransform options to provide
+  record-transformation functions.  The primary use case for this is
+  to use packing to compress storages not previously compressed.
+
 1.1.0 (1010-03-10)
 ==================
 

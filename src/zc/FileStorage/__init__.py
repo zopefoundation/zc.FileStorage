@@ -30,23 +30,27 @@ import ZODB.TimeStamp
 
 GIG = 1<<30
 
-def meta_packer(sleep):
+def Packer(sleep=0, transform=None, untransform=None):
     def packer(storage, referencesf, stop, gc):
-        return FileStoragePacker(storage, stop, sleep).pack()
+        return FileStoragePacker(storage, stop, sleep, transform, untransform
+                                 ).pack()
     return packer
 
-packer = meta_packer(0)
-packer1 = meta_packer(1)
-packer2 = meta_packer(2)
-packer4 = meta_packer(3)
-packer8 = meta_packer(4)
+packer  = Packer(0)
+packer1 = Packer(1)
+packer2 = Packer(2)
+packer4 = Packer(3)
+packer8 = Packer(4)
 
 class FileStoragePacker(FileStorageFormatter):
 
-    def __init__(self, storage, stop, sleep=0):
+    def __init__(self, storage, stop,
+                 sleep=0, transform=None, untransform=None):
         self.storage = storage
         self._name = path = storage._file.name
         self.sleep = sleep
+        self.transform_option = transform
+        self.untransform_option = untransform
 
         # We open our own handle on the storage so that much of pack can
         # proceed in parallel.  It's important to close this file at every
@@ -84,6 +88,8 @@ class FileStoragePacker(FileStorageFormatter):
             syspath = sys.path,
             blob_dir = self.storage.blob_dir,
             sleep = self.sleep,
+            transform = self.transform_option,
+            untransform = self.untransform_option,
             ))
         for name in 'error', 'log':
             name = self._name+'.pack'+name
@@ -163,6 +169,7 @@ class FileStoragePacker(FileStorageFormatter):
         finally:
             self._file.close()
 
+    transform = None
     def _copyNewTrans(self, input_pos, output, index,
                       acquire=None, release=None):
         tindex = {}
@@ -171,6 +178,7 @@ class FileStoragePacker(FileStorageFormatter):
         if release is not None:
             release()
 
+        transform = self.transform
         start_time = time.time()
         output_tpos = output.tell()
         copier.setTxnPos(output_tpos)
@@ -190,6 +198,8 @@ class FileStoragePacker(FileStorageFormatter):
                 if h.back:
                     prev_txn = self.getTxnFromData(h.oid, h.back)
 
+            if data and (transform is not None):
+                data = transform(data)
             copier.copy(h.oid, h.tid, data, prev_txn,
                         output_tpos, output.tell())
 
@@ -258,7 +268,8 @@ logging.getLogger().addHandler(handler)
 
 try:
     packer = zc.FileStorage.PackProcess(%(path)r, %(stop)r, %(size)r,
-                                        %(blob_dir)r, %(sleep)s)
+                                        %(blob_dir)r, %(sleep)s,
+                                        %(transform)r, %(untransform)r)
     packer.pack()
 except Exception, v:
     logging.exception('packing')
@@ -273,7 +284,8 @@ except Exception, v:
 
 class PackProcess(FileStoragePacker):
 
-    def __init__(self, path, stop, current_size, blob_dir, sleep):
+    def __init__(self, path, stop, current_size, blob_dir,
+                 sleep, transform, untransform):
         self._name = path
         # We open our own handle on the storage so that much of pack can
         # proceed in parallel.  It's important to close this file at every
@@ -297,6 +309,12 @@ class PackProcess(FileStoragePacker):
 
         self._freecache = _freefunc(self._file)
         self.sleep = sleep
+        if isinstance(transform, str):
+            transform = getglobal(transform)
+        self.transform = transform
+        if isinstance(untransform, str):
+            untransform = getglobal(untransform)
+        self.untransform = untransform
         logging.info('packing to %s, sleep %s',
                      ZODB.TimeStamp.TimeStamp(self._stop),
                      self.sleep)
@@ -393,7 +411,14 @@ class PackProcess(FileStoragePacker):
         output.write(self._file.read(self._metadata_size))
         new_index = ZODB.fsIndex.fsIndex()
         pack_blobs = self.pack_blobs
-        is_blob_record = ZODB.blob.is_blob_record
+        transform = self.transform
+        untransform = self.untransform
+        if untransform is None:
+            is_blob_record = ZODB.blob.is_blob_record
+        else:
+            _is_blob_record = ZODB.blob.is_blob_record
+            def is_blob_record(data):
+                return _is_blob_record(untransform(data))
 
         log_pos = pos
 
@@ -455,6 +480,9 @@ class PackProcess(FileStoragePacker):
                     # refs and data from the backpointer.  We need
                     # to write the data in the new record.
                     data = self.fetchBackpointer(h.oid, h.back) or ''
+
+                if transform is not None:
+                    data = self.transform(data)
 
                 h.prev = 0
                 h.back = 0
@@ -520,6 +548,10 @@ class PackProcess(FileStoragePacker):
 
             time.sleep((time.time()-start_time)*self.sleep)
         return pos
+
+def getglobal(s):
+    module, expr = s.split(':', 1)
+    return eval(expr, __import__(module, {}, {}, ['*']).__dict__)
 
 
 def _freefunc(f):

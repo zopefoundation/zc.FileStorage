@@ -294,6 +294,91 @@ Now do it all again with a longer sleep:
 
     """
 
+def data_transform_and_untransform_hooks():
+    r"""The Packer factory takes uptions to transform and untransform data
+
+This is helpful when data records aren't raw pickles or when you want
+to transform them so that they aren't raw pickles.  To test this,
+we'll take a file storage database and convert it to use the
+ZODB.tests.hexstorage trandormation.
+
+    >>> import ZODB.FileStorage
+    >>> db = ZODB.DB(ZODB.FileStorage.FileStorage(
+    ...     'data.fs', blob_dir='blobs',
+    ...     packer=zc.FileStorage.Packer(
+    ...            transform='zc.FileStorage.tests:hexer',
+    ...            untransform='zc.FileStorage.tests:unhexer',
+    ...            )))
+    >>> conn = db.open()
+    >>> conn.root.b = ZODB.blob.Blob('test')
+    >>> conn.transaction_manager.commit()
+
+    >>> _ = conn.root.b.open().read()
+
+So, here we have some untransformed data. Now, we'll pack it:
+
+    >>> db.pack()
+
+Now, the database records are hex:
+
+    >>> db.storage.load('\0'*8)[0][:50]
+    '.h6370657273697374656e742e6d617070696e670a50657273'
+
+    >>> db.storage.load('\0'*7+'\1')[0][:50]
+    '.h635a4f44422e626c6f620a426c6f620a71012e4e2e'
+
+Let's add an object. (WE get away with this because the object's we
+use are in the cache. :)
+
+    >>> conn.root.a = conn.root().__class__()
+    >>> conn.transaction_manager.commit()
+
+Now the root and the new object are not hex:
+
+    >>> db.storage.load('\0'*8)[0][:50]
+    'cpersistent.mapping\nPersistentMapping\nq\x01.}q\x02U\x04data'
+
+    >>> db.storage.load('\0'*7+'\2')[0][:50]
+    'cpersistent.mapping\nPersistentMapping\nq\x01.}q\x02U\x04data'
+
+We capture the current time as the pack time:
+
+    >>> import time
+    >>> pack_time = time.time()
+    >>> time.sleep(.1)
+
+We'll throw in a blob modification:
+
+    >>> conn.root.b.open('w').write('test 2')
+    >>> conn.transaction_manager.commit()
+
+Now pack and make sure all the records have been transformed:
+
+
+    >>> db.pack()
+    >>> from ZODB.utils import p64
+    >>> for i in range(len(db.storage)):
+    ...     if db.storage.load(p64(i))[0][:2] != '.h':
+    ...         print i
+
+We should have only one blob file:
+
+    >>> nblobs = 0
+    >>> for _, _, files in os.walk('blobs'):
+    ...     for file in files:
+    ...         if file.endswith('.blob'):
+    ...             nblobs += 1
+    >>> nblobs
+    1
+
+    """
+
+def hexer(data):
+    return (data[:2] == '.h') and data or ('.h'+data.encode('hex'))
+def unhexer(data):
+    return data and (data[:2] == '.h' and data[2:].decode('hex') or data)
+
+
 def test_suite():
     suite = unittest.TestSuite()
     suite.addTest(unittest.makeSuite(ZCFileStorageTests, "check"))
