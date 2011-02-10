@@ -19,17 +19,18 @@
 # tests affected by the lack of gc in pack.
 ##############################################################################
 
+import ZODB.blob
+import ZODB.tests.testblob
+import doctest
 import pickle
 import unittest
 import zc.FileStorage
-import ZODB.blob
-import ZODB.tests.testblob
 
 from ZODB.tests.testFileStorage import * # :-P
 from ZODB.tests.PackableStorage import * # :-P
 from ZODB.tests.TransactionalUndoStorage import * # :-P
 
-from zope.testing import doctest, setupstack
+from zope.testing import setupstack
 
 class ZCFileStorageTests(FileStorageTests):
 

@@ -1,5 +1,13 @@
+after 1.2.0
+===========
 
-1.2.0 (1010-05-21)
+- Added test extra to declare test dependency on ``zope.testing``.
+
+- Using Python's ``doctest`` module instead of depreacted
+  ``zope.testing.doctest``.
+
+
+1.2.0 (2010-05-21)
 ==================
 
 - Now (ZODB 3.10) that the filestorage packer option can take
@@ -10,7 +18,7 @@
   record-transformation functions.  The primary use case for this is
   to use packing to compress storages not previously compressed.
 
-1.1.0 (1010-03-10)
+1.1.0 (2010-03-10)
 ==================
 
 - Improved use of posix_fadvise (where available)

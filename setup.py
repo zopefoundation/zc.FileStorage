@@ -21,6 +21,10 @@ setup(
     install_requires = ['setuptools',
                         'ZODB3 >=3.9dev'
                         ],
+    extras_require=dict(
+        test=[
+            'zope.testing',
+            ]),
     include_package_data = True,
     zip_safe = False,
     )
