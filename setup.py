@@ -2,6 +2,10 @@ name, version = 'zc.FileStorage', '0'
 
 from setuptools import setup, find_packages
 from distutils.core import Extension
+entry_points = """
+[console_scripts]
+snapshot-in-time = zc.FileStorage.snapshotintime:main
+"""
 
 setup(
     name = name,
@@ -27,4 +31,5 @@ setup(
             ]),
     include_package_data = True,
     zip_safe = False,
+    entry_points = entry_points,
     )

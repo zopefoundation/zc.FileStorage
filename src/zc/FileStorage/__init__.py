@@ -284,8 +284,9 @@ except Exception, v:
 
 class PackProcess(FileStoragePacker):
 
-    def __init__(self, path, stop, current_size, blob_dir,
-                 sleep, transform, untransform):
+    def __init__(self, path, stop, current_size,
+                 blob_dir=None, sleep=0, transform=None, untransform=None,
+                 ):
         self._name = path
         # We open our own handle on the storage so that much of pack can
         # proceed in parallel.  It's important to close this file at every
@@ -324,7 +325,7 @@ class PackProcess(FileStoragePacker):
         self._freecache(pos)
         return FileStoragePacker._read_txn_header(self, pos, tid)
 
-    def pack(self):
+    def pack(self, snapshot_in_time_path=None):
         packed, index, packpos = self.buildPackIndex(self._stop, self.file_end)
         logging.info('initial scan %s objects at %s', len(index), packpos)
         if packed:
@@ -334,9 +335,15 @@ class PackProcess(FileStoragePacker):
             return
 
         logging.info('copy to pack time')
-        output = open(self._name + ".pack", "w+b")
+        output = open(snapshot_in_time_path or (self._name + ".pack"), "w+b")
         self._freeoutputcache = _freefunc(output)
         index, new_pos = self.copyToPacktime(packpos, index, output)
+        if snapshot_in_time_path:
+            # We just want a snapshot in time, containing current records as
+            # of that time.
+            index.save(packpos, snapshot_in_time_path+'.index')
+            return
+
         if new_pos == packpos:
             # pack didn't free any data.  there's no point in continuing.
             self._file.close()

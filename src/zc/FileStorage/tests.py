@@ -374,6 +374,155 @@ We should have only one blob file:
 
     """
 
+def snapshot_in_time():
+    r"""We can take a snapshot in time
+
+    This is a copy of a database as of a given time and containing
+    only current records as of that time.
+
+    First, we'll hack time:
+
+    >>> import logging
+    >>> exec(time_hack_template)
+
+    Next, we'll create a file storage with some data:
+
+    >>> import ZODB.FileStorage
+
+    >>> conn = ZODB.connection('data.fs')
+    >>> for i in range(5):
+    ...     conn.root()[i] = conn.root().__class__()
+    ...     transaction.commit()
+    >>> for i in range(5):
+    ...     conn.root()[i].x = 0
+    ...     transaction.commit()
+    >>> for j in range(10):
+    ...     for i in range(5):
+    ...         conn.root()[i].x += 1
+    ...         transaction.commit()
+
+    >>> import ZODB.TimeStamp
+    >>> copy_time = ZODB.TimeStamp.TimeStamp(
+    ...    conn.db().storage.lastTransaction())
+
+    >>> for j in range(10):
+    ...     for i in range(5):
+    ...         conn.root()[i].x += 1
+    ...         transaction.commit()
+
+    We'll comput a hash of the old file contents:
+
+    >>> import hashlib
+    >>> hash = hashlib.sha1(open('data.fs').read()).digest()
+
+    OK, we have a database with a bunch of revisions.
+    Now, let's make a snapshot:
+
+    >>> import zc.FileStorage.snapshotintime
+
+    >>> copy_time = '%s-%s-%sT%s:%s:%s' % (
+    ...   copy_time.year(), copy_time.month(), copy_time.day(),
+    ...   copy_time.hour(), copy_time.minute(), int(copy_time.second()))
+    >>> zc.FileStorage.snapshotintime.main(
+    ...    ['data.fs', copy_time, 'snapshot.fs'])
+
+    >>> sorted(os.listdir('.')) # doctest: +NORMALIZE_WHITESPACE
+    ['data.fs', 'data.fs.index', 'data.fs.lock', 'data.fs.tmp',
+    'snapshot.fs', 'snapshot.fs.index']
+
+    The orginal file is unchanged:
+
+    >>> hashlib.sha1(open('data.fs').read()).digest() == hash
+    True
+
+    The new file has just the final records:
+
+    >>> for t in ZODB.FileStorage.FileIterator('snapshot.fs'):
+    ...     print ZODB.TimeStamp.TimeStamp(t.tid)
+    ...     for record in t:
+    ...         print `record.oid`
+    2010-03-09 20:28:05.000000
+    '\x00\x00\x00\x00\x00\x00\x00\x00'
+    2010-03-09 20:28:56.000000
+    '\x00\x00\x00\x00\x00\x00\x00\x01'
+    2010-03-09 20:28:57.000000
+    '\x00\x00\x00\x00\x00\x00\x00\x02'
+    2010-03-09 20:28:58.000000
+    '\x00\x00\x00\x00\x00\x00\x00\x03'
+    2010-03-09 20:28:59.000000
+    '\x00\x00\x00\x00\x00\x00\x00\x04'
+    2010-03-09 20:29:00.000000
+    '\x00\x00\x00\x00\x00\x00\x00\x05'
+
+    Of course, we can open the copy:
+
+    >>> conn.close()
+    >>> conn = ZODB.connection('snapshot.fs')
+    >>> sorted(conn.root().iterkeys()) == range(5)
+    True
+
+    >>> for i in range(5):
+    ...     if conn.root()[i].x != 10:
+    ...         print 'oops', conn.root()[i].x
+
+    >>> time.time, time.sleep = time_time, time_sleep
+
+    We get usage if the wrong number or form of arguments are given:
+
+    >>> import sys
+    >>> stderr = sys.stderr
+    >>> sys.stderr = sys.stdout
+    >>> argv0 = sys.argv[0]
+    >>> sys.argv[0] = 'snapshot-in-time'
+    >>> try: zc.FileStorage.snapshotintime.main([])
+    ... except SystemExit, v: pass
+    ... else: print 'oops'
+    Usage: snapshot-in-time [input-path utc-snapshot-time output-path]
+    <BLANKLINE>
+    Make a point-in time snapshot of a file-storage data file containing
+    just the current records as of the given time.  The resulting file can
+    be used as a basis of a demo storage.
+    <BLANKLINE>
+    If the output file isn't given, then a file name will be generated
+    based on the input file name and the utc-snapshot-time.
+    <BLANKLINE>
+    If the utc-snapshot-time is ommitted, then the current time will be used.
+    <BLANKLINE>
+    Note: blobs (if any) aren't copied.
+    <BLANKLINE>
+    The UTC time is a string of the form: YYYY-MM-DDTHH:MM:SS.  The time
+    conponents are optional.  The time defaults to midnight, UTC.
+    <BLANKLINE>
+
+    >>> sys.argv[0] = argv0
+
+    >>> try: zc.FileStorage.snapshotintime.main(['xxx', 'xxx', 'xxx'])
+    ... except SystemExit, v: pass
+    ... else: print 'oops'
+    xxx Does not exist.
+
+    >>> try: zc.FileStorage.snapshotintime.main(['data.fs', 'xxx', 'xxx'])
+    ... except SystemExit, v: pass
+    ... else: print 'oops'
+    Bad date-time: xxx
+
+    >>> sys.stderr = stderr
+
+    If you omit the output file, a file name will be generated based on the
+    time:
+
+    >>> zc.FileStorage.snapshotintime.main(['data.fs', copy_time])
+
+    >>> sorted(os.listdir('.')) # doctest: +NORMALIZE_WHITESPACE
+    ['data.fs', 'data.fs.index', 'data.fs.lock', 'data.fs.tmp',
+     'data2010-3-9T20:29:0.fs', 'data2010-3-9T20:29:0.fs.index',
+     'snapshot.fs', 'snapshot.fs.index', 'snapshot.fs.lock', 'snapshot.fs.tmp']
+
+    >>> open('data2010-3-9T20:29:0.fs').read() == open('snapshot.fs').read()
+    True
+
+    """
+
 def hexer(data):
     return (data[:2] == '.h') and data or ('.h'+data.encode('hex'))
 def unhexer(data):

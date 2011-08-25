@@ -1,6 +1,9 @@
 after 1.2.0
 ===========
 
+- Added a utility script to make snapshote in time copy of file storages
+  containing only current records as of a given time.
+
 - Added test extra to declare test dependency on ``zope.testing``.
 
 - Using Python's ``doctest`` module instead of depreacted
