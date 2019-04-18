@@ -129,7 +129,7 @@ def faux_time():
     return now
 
 def faux_sleep(x):
-    logging.info('sleep '+`x`)
+    logging.info('sleep '+ repr(x))
 
 time.time, time.sleep = faux_time, faux_sleep
 """
@@ -177,7 +177,7 @@ Mess with time -- there should be infrastructure for this!
     ...        break
     ...     time.sleep(0.01)
     >>> def faux_sleep(x):
-    ...     print('sleep '+`x`)
+    ...     print('sleep '+repr(x))
     >>> time.sleep = faux_sleep
     >>> conn.root().x = 1
     >>> transaction.commit()
@@ -440,7 +440,7 @@ def snapshot_in_time():
     >>> for t in ZODB.FileStorage.FileIterator('snapshot.fs'):
     ...     print (ZODB.TimeStamp.TimeStamp(t.tid))
     ...     for record in t:
-    ...         print (`record.oid`)
+    ...         print (repr(record.oid))
     2010-03-09 20:28:05.000000
     '\x00\x00\x00\x00\x00\x00\x00\x00'
     2010-03-09 20:28:56.000000
