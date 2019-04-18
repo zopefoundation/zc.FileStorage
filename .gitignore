@@ -1,0 +1,11 @@
+.eggs
+*.pyc
+*.sw*
+.*@neomake*.py
+*.egg-info
+*.so
+.tox
+build
+blobs
+blobs.old
+*.fs*
