@@ -379,7 +379,7 @@ class PackProcess(FileStoragePacker):
 
     def buildPackIndex(self, stop, file_end):
         index = ZODB.fsIndex.fsIndex()
-        pos = 4L
+        pos = 4
         packed = True
         log_pos = pos
 
@@ -442,7 +442,7 @@ class PackProcess(FileStoragePacker):
         while pos < packpos:
             start_time = time.time()
             th = self._read_txn_header(pos)
-            new_tpos = 0L
+            new_tpos = 0
             tend = pos + th.tlen
             pos += th.headerlen()
             while pos < tend:
