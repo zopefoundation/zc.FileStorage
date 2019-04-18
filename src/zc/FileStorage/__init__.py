@@ -12,6 +12,8 @@
 #
 ##############################################################################
 
+from __future__ import absolute_import
+
 import cPickle
 import logging
 import os
@@ -565,7 +567,7 @@ def _freefunc(f):
     # Return an posix_fadvise-based cache freeer.
 
     try:
-        import _zc_FileStorage_posix_fadvise
+        from . import _zc_FileStorage_posix_fadvise
     except ImportError:
         return lambda pos: None
 
