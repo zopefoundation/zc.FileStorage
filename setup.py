@@ -25,10 +25,11 @@ setup(
     install_requires = ['setuptools',
                         'ZODB3 >=3.9dev'
                         ],
-    extras_require=dict(
-        test=[
-            'zope.testing',
-            ]),
+    tests_require=[
+        'zope.testing',
+        'mock',
+    ],
+    test_suite="zc.FileStorage.tests.test_suite",
     include_package_data = True,
     zip_safe = False,
     entry_points = entry_points,
