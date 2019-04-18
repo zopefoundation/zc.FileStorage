@@ -12,6 +12,8 @@
 #
 ##############################################################################
 
+from __future__ import print_function
+
 import os
 import re
 import sys
@@ -42,7 +44,7 @@ def main(args=None):
         args = sys.argv[1:]
 
     if len(args) < 2 or len(args) > 3:
-        print >>sys.stderr, usage % sys.argv[0]
+        print(usage % sys.argv[0], file=sys.stderr)
         sys.exit(1)
 
 
@@ -56,11 +58,11 @@ def main(args=None):
             else:
                 outpath = inpath+stop
     except ValueError:
-        print >>sys.stderr, usage % sys.argv[0]
+        print(usage % sys.argv[0], file=sys.stderr)
         sys.exit(1)
 
     if not os.path.exists(inpath):
-        print >>sys.stderr, inpath, 'Does not exist.'
+        print(inpath, 'Does not exist.', file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -74,7 +76,7 @@ def main(args=None):
             ZODB.TimeStamp.TimeStamp(year, month, day, hour, minute, second)
             )
     except Exception:
-        print >>sys.stderr, 'Bad date-time:', stop
+        print('Bad date-time:', stop, file=sys.stderr)
         sys.exit(1)
 
     zc.FileStorage.PackProcess(inpath, stop, os.stat(inpath).st_size

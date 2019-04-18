@@ -177,7 +177,7 @@ Mess with time -- there should be infrastructure for this!
     ...        break
     ...     time.sleep(0.01)
     >>> def faux_sleep(x):
-    ...     print 'sleep '+`x`
+    ...     print('sleep '+`x`)
     >>> time.sleep = faux_sleep
     >>> conn.root().x = 1
     >>> transaction.commit()
@@ -185,7 +185,7 @@ Mess with time -- there should be infrastructure for this!
     sleep 1.0
 
     >>> fs.close()
-    >>> print open('data.fs.packlog').read(), # doctest: +NORMALIZE_WHITESPACE
+    >>> print (open('data.fs.packlog').read(),) # doctest: +NORMALIZE_WHITESPACE
     2010-03-09 15:27:55,000 root INFO packing to 2010-03-09 20:28:06.000000,
        sleep 1
     2010-03-09 15:27:57,000 root INFO read 162
@@ -241,7 +241,7 @@ Now do it all again with a longer sleep:
     >>> fs = ZODB.FileStorage.FileStorage('data.fs',
     ...                                   packer=zc.FileStorage.packer2)
     >>> fs.pack(pack_time, now)
-    >>> print open('data.fs.packlog').read(), # doctest: +NORMALIZE_WHITESPACE
+    >>> print (open('data.fs.packlog').read(),) # doctest: +NORMALIZE_WHITESPACE
     2010-03-09 15:27:55,000 root INFO packing to 2010-03-09 20:28:06.000000,
       sleep 2
     2010-03-09 15:27:57,000 root INFO read 162
@@ -360,7 +360,7 @@ Now pack and make sure all the records have been transformed:
     >>> from ZODB.utils import p64
     >>> for i in range(len(db.storage)):
     ...     if db.storage.load(p64(i))[0][:2] != '.h':
-    ...         print i
+    ...         print (i)
 
 We should have only one blob file:
 
@@ -438,9 +438,9 @@ def snapshot_in_time():
     The new file has just the final records:
 
     >>> for t in ZODB.FileStorage.FileIterator('snapshot.fs'):
-    ...     print ZODB.TimeStamp.TimeStamp(t.tid)
+    ...     print (ZODB.TimeStamp.TimeStamp(t.tid))
     ...     for record in t:
-    ...         print `record.oid`
+    ...         print (`record.oid`)
     2010-03-09 20:28:05.000000
     '\x00\x00\x00\x00\x00\x00\x00\x00'
     2010-03-09 20:28:56.000000
@@ -463,7 +463,7 @@ def snapshot_in_time():
 
     >>> for i in range(5):
     ...     if conn.root()[i].x != 10:
-    ...         print 'oops', conn.root()[i].x
+    ...         print ('oops', conn.root()[i].x)
 
     >>> time.time, time.sleep = time_time, time_sleep
 
@@ -476,7 +476,7 @@ def snapshot_in_time():
     >>> sys.argv[0] = 'snapshot-in-time'
     >>> try: zc.FileStorage.snapshotintime.main([])
     ... except SystemExit, v: pass
-    ... else: print 'oops'
+    ... else: print ('oops')
     Usage: snapshot-in-time [input-path utc-snapshot-time output-path]
     <BLANKLINE>
     Make a point-in time snapshot of a file-storage data file containing
@@ -498,12 +498,12 @@ def snapshot_in_time():
 
     >>> try: zc.FileStorage.snapshotintime.main(['xxx', 'xxx', 'xxx'])
     ... except SystemExit, v: pass
-    ... else: print 'oops'
+    ... else: print ('oops')
     xxx Does not exist.
 
     >>> try: zc.FileStorage.snapshotintime.main(['data.fs', 'xxx', 'xxx'])
     ... except SystemExit, v: pass
-    ... else: print 'oops'
+    ... else: print ('oops')
     Bad date-time: xxx
 
     >>> sys.stderr = stderr
