@@ -157,7 +157,7 @@ class FileStoragePacker(FileStorageFormatter):
                     input_pos = self._copyNewTrans(
                         input_pos, output, index,
                         self._commit_lock_acquire, self._commit_lock_release)
-            except CorruptedDataError, err:
+            except CorruptedDataError as err:
                 # The last call to copyOne() will raise
                 # CorruptedDataError, because it will attempt to read past
                 # the end of the file.  Double-check that the exception
@@ -271,7 +271,7 @@ try:
                                         %(blob_dir)r, %(sleep)s,
                                         %(transform)r, %(untransform)r)
     packer.pack()
-except Exception, v:
+except Exception as v:
     logging.exception('packing')
     try:
         v = cPickle.dumps(v)

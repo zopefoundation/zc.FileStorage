@@ -475,7 +475,7 @@ def snapshot_in_time():
     >>> argv0 = sys.argv[0]
     >>> sys.argv[0] = 'snapshot-in-time'
     >>> try: zc.FileStorage.snapshotintime.main([])
-    ... except SystemExit, v: pass
+    ... except SystemExit as v: pass
     ... else: print ('oops')
     Usage: snapshot-in-time [input-path utc-snapshot-time output-path]
     <BLANKLINE>
@@ -497,12 +497,12 @@ def snapshot_in_time():
     >>> sys.argv[0] = argv0
 
     >>> try: zc.FileStorage.snapshotintime.main(['xxx', 'xxx', 'xxx'])
-    ... except SystemExit, v: pass
+    ... except SystemExit as v: pass
     ... else: print ('oops')
     xxx Does not exist.
 
     >>> try: zc.FileStorage.snapshotintime.main(['data.fs', 'xxx', 'xxx'])
-    ... except SystemExit, v: pass
+    ... except SystemExit as v: pass
     ... else: print ('oops')
     Bad date-time: xxx
 
