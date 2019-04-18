@@ -14,7 +14,6 @@
 
 from __future__ import absolute_import
 
-import cPickle
 import logging
 import os
 import subprocess
@@ -29,6 +28,11 @@ import ZODB.FileStorage
 import ZODB.FileStorage.fspack
 import ZODB.fsIndex
 import ZODB.TimeStamp
+
+if sys.version_info.major == 2:
+    import cPickle as pickle
+else:
+    import pickle
 
 GIG = 1<<30
 
@@ -108,7 +112,7 @@ class FileStoragePacker(FileStorageFormatter):
         out = proc.stdout.read()
         if proc.wait():
             if os.path.exists(self._name+'.packerror'):
-                v = cPickle.Unpickler(open(self._name+'.packerror', 'rb')
+                v = pickle.Unpickler(open(self._name+'.packerror', 'rb')
                                       ).load()
                 os.remove(self._name+'.packerror')
                 raise v
@@ -119,7 +123,7 @@ class FileStoragePacker(FileStorageFormatter):
         if not os.path.exists(packindex_path):
             return # already packed or pack didn't benefit
 
-        index, opos = cPickle.Unpickler(open(packindex_path, 'rb')).load()
+        index, opos = pickle.Unpickler(open(packindex_path, 'rb')).load()
         os.remove(packindex_path)
         os.remove(self._name+".packscript")
 
@@ -259,7 +263,11 @@ import sys, logging
 
 sys.path[:] = %(syspath)r
 
-import cPickle
+if sys.version_info.major == 2:
+    import cPickle as pickle
+else:
+    import pickle
+
 import zc.FileStorage
 
 logging.getLogger().setLevel(logging.INFO)
@@ -276,7 +284,7 @@ try:
 except Exception as v:
     logging.exception('packing')
     try:
-        v = cPickle.dumps(v)
+        v = pickle.dumps(v)
     except Exception:
         pass
     else:
@@ -360,7 +368,7 @@ class PackProcess(FileStoragePacker):
 
         # Save the index so the parent process can use it as a starting point.
         f = open(self._name + ".packindex", 'wb')
-        cPickle.Pickler(f, 1).dump((index, output.tell()))
+        pickle.Pickler(f, 1).dump((index, output.tell()))
         f.close()
         output.flush()
         os.fsync(output.fileno())
