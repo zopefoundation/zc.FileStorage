@@ -459,7 +459,7 @@ def snapshot_in_time():
 
     >>> conn.close()
     >>> conn = ZODB.connection('snapshot.fs')
-    >>> sorted(conn.root().iterkeys()) == range(5)
+    >>> sorted(conn.root().keys()) == range(5)
     True
 
     >>> for i in range(5):
