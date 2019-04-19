@@ -72,9 +72,8 @@ def main(args=None):
             hour, minute, second = (map(int, time.split(':'))+[0,0])[:3]
         else:
             hour = minute = second = 0
-        stop = repr(
-            ZODB.TimeStamp.TimeStamp(year, month, day, hour, minute, second)
-            )
+        stop = repr(ZODB.TimeStamp.TimeStamp(year, month, day, hour, minute, second)).replace("'", "").decode("string_escape")
+
     except Exception:
         print('Bad date-time:', stop, file=sys.stderr)
         sys.exit(1)

@@ -388,6 +388,7 @@ def snapshot_in_time():
     Next, we'll create a file storage with some data:
 
     >>> import ZODB.FileStorage
+    >>> import transaction
 
     >>> conn = ZODB.connection('data.fs')
     >>> for i in range(5):

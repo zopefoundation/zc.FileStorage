@@ -23,7 +23,9 @@ setup(
     namespace_packages = ['zc'],
     package_dir = {'': 'src'},
     install_requires = ['setuptools',
-                        'ZODB3 >=3.9dev'
+                        'ZODB<5',
+                        'ZEO<5',
+                        'transaction<2',
                         ],
     tests_require=[
         'zope.testing',
