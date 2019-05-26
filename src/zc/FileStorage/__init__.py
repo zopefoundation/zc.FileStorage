@@ -12,7 +12,8 @@
 #
 ##############################################################################
 
-import cPickle
+from __future__ import absolute_import
+
 import logging
 import os
 import subprocess
@@ -27,6 +28,11 @@ import ZODB.FileStorage
 import ZODB.FileStorage.fspack
 import ZODB.fsIndex
 import ZODB.TimeStamp
+
+if sys.version_info.major == 2:
+    import cPickle as pickle
+else:
+    import pickle
 
 GIG = 1<<30
 
@@ -106,7 +112,7 @@ class FileStoragePacker(FileStorageFormatter):
         out = proc.stdout.read()
         if proc.wait():
             if os.path.exists(self._name+'.packerror'):
-                v = cPickle.Unpickler(open(self._name+'.packerror', 'rb')
+                v = pickle.Unpickler(open(self._name+'.packerror', 'rb')
                                       ).load()
                 os.remove(self._name+'.packerror')
                 raise v
@@ -117,7 +123,7 @@ class FileStoragePacker(FileStorageFormatter):
         if not os.path.exists(packindex_path):
             return # already packed or pack didn't benefit
 
-        index, opos = cPickle.Unpickler(open(packindex_path, 'rb')).load()
+        index, opos = pickle.Unpickler(open(packindex_path, 'rb')).load()
         os.remove(packindex_path)
         os.remove(self._name+".packscript")
 
@@ -157,7 +163,7 @@ class FileStoragePacker(FileStorageFormatter):
                     input_pos = self._copyNewTrans(
                         input_pos, output, index,
                         self._commit_lock_acquire, self._commit_lock_release)
-            except CorruptedDataError, err:
+            except CorruptedDataError as err:
                 # The last call to copyOne() will raise
                 # CorruptedDataError, because it will attempt to read past
                 # the end of the file.  Double-check that the exception
@@ -257,7 +263,11 @@ import sys, logging
 
 sys.path[:] = %(syspath)r
 
-import cPickle
+if sys.version_info.major == 2:
+    import cPickle as pickle
+else:
+    import pickle
+
 import zc.FileStorage
 
 logging.getLogger().setLevel(logging.INFO)
@@ -271,10 +281,10 @@ try:
                                         %(blob_dir)r, %(sleep)s,
                                         %(transform)r, %(untransform)r)
     packer.pack()
-except Exception, v:
+except Exception as v:
     logging.exception('packing')
     try:
-        v = cPickle.dumps(v)
+        v = pickle.dumps(v)
     except Exception:
         pass
     else:
@@ -358,7 +368,7 @@ class PackProcess(FileStoragePacker):
 
         # Save the index so the parent process can use it as a starting point.
         f = open(self._name + ".packindex", 'wb')
-        cPickle.Pickler(f, 1).dump((index, output.tell()))
+        pickle.Pickler(f, 1).dump((index, output.tell()))
         f.close()
         output.flush()
         os.fsync(output.fileno())
@@ -369,7 +379,7 @@ class PackProcess(FileStoragePacker):
 
     def buildPackIndex(self, stop, file_end):
         index = ZODB.fsIndex.fsIndex()
-        pos = 4L
+        pos = 4
         packed = True
         log_pos = pos
 
@@ -432,7 +442,7 @@ class PackProcess(FileStoragePacker):
         while pos < packpos:
             start_time = time.time()
             th = self._read_txn_header(pos)
-            new_tpos = 0L
+            new_tpos = 0
             tend = pos + th.tlen
             pos += th.headerlen()
             while pos < tend:
@@ -565,7 +575,7 @@ def _freefunc(f):
     # Return an posix_fadvise-based cache freeer.
 
     try:
-        import _zc_FileStorage_posix_fadvise
+        from . import _zc_FileStorage_posix_fadvise
     except ImportError:
         return lambda pos: None
 

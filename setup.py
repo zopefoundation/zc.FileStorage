@@ -7,6 +7,11 @@ entry_points = """
 snapshot-in-time = zc.FileStorage.snapshotintime:main
 """
 
+tests_requirements = [
+    'zope.testing',
+    'mock',
+]
+
 setup(
     name = name,
     version = version,
@@ -23,12 +28,15 @@ setup(
     namespace_packages = ['zc'],
     package_dir = {'': 'src'},
     install_requires = ['setuptools',
-                        'ZODB3 >=3.9dev'
+                        'ZODB<5',
+                        'ZEO<5',
+                        'transaction<2',
                         ],
+    tests_require=tests_requirements,
     extras_require=dict(
-        test=[
-            'zope.testing',
-            ]),
+        test=tests_requirements,
+    ),
+    test_suite="zc.FileStorage.tests.test_suite",
     include_package_data = True,
     zip_safe = False,
     entry_points = entry_points,
