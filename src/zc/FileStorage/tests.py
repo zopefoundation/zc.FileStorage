@@ -186,7 +186,8 @@ Mess with time -- there should be infrastructure for this!
     sleep 1.0
 
     >>> fs.close()
-    >>> print(open('data.fs.packlog').read()) # doctest: +NORMALIZE_WHITESPACE
+    >>> with open('data.fs.packlog') as fd:
+    ...     print(fd.read()) # doctest: +NORMALIZE_WHITESPACE
     2010-03-09 15:27:55,000 root INFO packing to 2010-03-09 20:28:06.000000,
        sleep 1
     2010-03-09 15:27:57,000 root INFO read 162
@@ -242,7 +243,8 @@ Now do it all again with a longer sleep:
     >>> fs = ZODB.FileStorage.FileStorage('data.fs',
     ...                                   packer=zc.FileStorage.packer2)
     >>> fs.pack(pack_time, now)
-    >>> print(open('data.fs.packlog').read()) # doctest: +NORMALIZE_WHITESPACE
+    >>> with open('data.fs.packlog') as fd:
+    ...     print(fd.read()) # doctest: +NORMALIZE_WHITESPACE
     2010-03-09 15:27:55,000 root INFO packing to 2010-03-09 20:28:06.000000,
       sleep 2
     2010-03-09 15:27:57,000 root INFO read 162
@@ -316,7 +318,8 @@ ZODB.tests.hexstorage trandormation.
     >>> conn.root.b = ZODB.blob.Blob('test')
     >>> conn.transaction_manager.commit()
 
-    >>> _ = conn.root.b.open().read()
+    >>> with conn.root.b.open() as fd:
+    ...     _ = fd.read()
 
 So, here we have some untransformed data. Now, we'll pack it:
 
@@ -352,7 +355,8 @@ We capture the current time as the pack time:
 
 We'll throw in a blob modification:
 
-    >>> conn.root.b.open('w').write('test 2')
+    >>> with conn.root.b.open('w') as fd:
+    ...     fd.write('test 2')
     >>> conn.transaction_manager.commit()
 
 Now pack and make sure all the records have been transformed:
@@ -417,7 +421,8 @@ def snapshot_in_time():
     We'll comput a hash of the old file contents:
 
     >>> import hashlib
-    >>> hash = hashlib.sha1(open('data.fs').read()).digest()
+    >>> with open('data.fs') as fd:
+    ...     hash = hashlib.sha1(fd.read()).digest()
 
     OK, we have a database with a bunch of revisions.
     Now, let's make a snapshot:
@@ -436,7 +441,8 @@ def snapshot_in_time():
 
     The orginal file is unchanged:
 
-    >>> hashlib.sha1(open('data.fs').read()).digest() == hash
+    >>> with open('data.fs') as fd:
+    ...     hashlib.sha1(fd.read()).digest() == hash
     True
 
     The new file has just the final records:
@@ -522,7 +528,8 @@ def snapshot_in_time():
      'data2010-3-9T20:29:0.fs', 'data2010-3-9T20:29:0.fs.index',
      'snapshot.fs', 'snapshot.fs.index', 'snapshot.fs.lock', 'snapshot.fs.tmp']
 
-    >>> open('data2010-3-9T20:29:0.fs').read() == open('snapshot.fs').read()
+    >>> with open('data2010-3-9T20:29:0.fs') as fd1, open('snapshot.fs') as fd2:
+    ...     fd1.read() == fd2.read()
     True
 
     """
