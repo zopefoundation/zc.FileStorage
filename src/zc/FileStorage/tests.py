@@ -23,14 +23,15 @@ import ZODB.blob
 import ZODB.tests.testblob
 import doctest
 import pickle
+import time
 import unittest
 import zc.FileStorage
 
-from ZODB.tests.testFileStorage import *  # :-P
-from ZODB.tests.PackableStorage import *  # :-P
-from ZODB.tests.TransactionalUndoStorage import *  # :-P
-
+from ZODB.serialize import referencesf
 from zope.testing import setupstack
+from ZODB.tests.testFileStorage import FileStorageTests
+from ZODB.tests.PackableStorage import pdumps
+from ZODB.tests.TransactionalUndoStorage import snooze
 
 
 class ZCFileStorageTests(FileStorageTests):
@@ -155,7 +156,7 @@ Mess with time -- there should be infrastructure for this!
     >>> exec(time_hack_template)
     >>> time.sleep = time_sleep
 
-    >>> import threading, transaction, shutil, ZODB.FileStorage, zc.FileStorage
+    >>> import os, threading, transaction, shutil, ZODB.FileStorage, zc.FileStorage
     >>> fs = ZODB.FileStorage.FileStorage('data.fs',
     ...                                   packer=zc.FileStorage.packer1)
     >>> db = ZODB.DB(fs)
@@ -307,7 +308,7 @@ to transform them so that they aren't raw pickles.  To test this,
 we'll take a file storage database and convert it to use the
 ZODB.tests.hexstorage trandormation.
 
-    >>> import ZODB.FileStorage
+    >>> import os, ZODB.FileStorage
     >>> db = ZODB.DB(ZODB.FileStorage.FileStorage(
     ...     'data.fs', blob_dir='blobs',
     ...     packer=zc.FileStorage.Packer(
@@ -389,7 +390,7 @@ def snapshot_in_time():
 
     First, we'll hack time:
 
-    >>> import logging
+    >>> import logging, os
     >>> exec(time_hack_template)
 
     Next, we'll create a file storage with some data:
