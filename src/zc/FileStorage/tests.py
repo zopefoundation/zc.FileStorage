@@ -240,7 +240,7 @@ Mess with time -- there should be infrastructure for this!
 
 Now do it all again with a longer sleep:
 
-    >>> shutil.copyfile('data.fs.old', 'data.fs')
+    >>> _ = shutil.copyfile('data.fs.old', 'data.fs')
     >>> fs = ZODB.FileStorage.FileStorage('data.fs',
     ...                                   packer=zc.FileStorage.packer2)
     >>> fs.pack(pack_time, now)
@@ -316,7 +316,7 @@ ZODB.tests.hexstorage trandormation.
     ...            untransform='zc.FileStorage.tests:unhexer',
     ...            )))
     >>> conn = db.open()
-    >>> conn.root.b = ZODB.blob.Blob('test')
+    >>> conn.root.b = ZODB.blob.Blob(b'test')
     >>> conn.transaction_manager.commit()
 
     >>> with conn.root.b.open() as fd:
@@ -328,10 +328,10 @@ So, here we have some untransformed data. Now, we'll pack it:
 
 Now, the database records are hex:
 
-    >>> db.storage.load('\0'*8)[0][:50]
+    >>> db.storage.load(b'\0'*8)[0][:50]
     '.h6370657273697374656e742e6d617070696e670a50657273'
 
-    >>> db.storage.load('\0'*7+'\1')[0][:50]
+    >>> db.storage.load(b'\0'*7+b'\1')[0][:50]
     '.h635a4f44422e626c6f620a426c6f620a71012e4e2e'
 
 Let's add an object. (WE get away with this because the object's we
@@ -342,10 +342,10 @@ use are in the cache. :)
 
 Now the root and the new object are not hex:
 
-    >>> db.storage.load('\0'*8)[0][:50]
+    >>> db.storage.load(b'\0'*8)[0][:50]
     'cpersistent.mapping\nPersistentMapping\nq\x01.}q\x02U\x04data'
 
-    >>> db.storage.load('\0'*7+'\2')[0][:50]
+    >>> db.storage.load(b'\0'*7+b'\2')[0][:50]
     'cpersistent.mapping\nPersistentMapping\nq\x01.}q\x02U\x04data'
 
 We capture the current time as the pack time:
@@ -357,7 +357,7 @@ We capture the current time as the pack time:
 We'll throw in a blob modification:
 
     >>> with conn.root.b.open('w') as fd:
-    ...     fd.write('test 2')
+    ...     _ = fd.write(b'test 2')
     >>> conn.transaction_manager.commit()
 
 Now pack and make sure all the records have been transformed:
@@ -422,7 +422,7 @@ def snapshot_in_time():
     We'll comput a hash of the old file contents:
 
     >>> import hashlib
-    >>> with open('data.fs') as fd:
+    >>> with open('data.fs', 'rb') as fd:
     ...     hash = hashlib.sha1(fd.read()).digest()
 
     OK, we have a database with a bunch of revisions.
@@ -442,7 +442,7 @@ def snapshot_in_time():
 
     The orginal file is unchanged:
 
-    >>> with open('data.fs') as fd:
+    >>> with open('data.fs', 'rb') as fd:
     ...     hashlib.sha1(fd.read()).digest() == hash
     True
 
@@ -529,7 +529,7 @@ def snapshot_in_time():
      'data2010-3-9T20:29:0.fs', 'data2010-3-9T20:29:0.fs.index',
      'snapshot.fs', 'snapshot.fs.index', 'snapshot.fs.lock', 'snapshot.fs.tmp']
 
-    >>> with open('data2010-3-9T20:29:0.fs') as fd1, open('snapshot.fs') as fd2:
+    >>> with open('data2010-3-9T20:29:0.fs', 'rb') as fd1, open('snapshot.fs', 'rb') as fd2:
     ...     fd1.read() == fd2.read()
     True
 

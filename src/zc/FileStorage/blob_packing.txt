@@ -42,7 +42,7 @@ Put some revisions of a blob object in our database and on the filesystem:
     >>> times.append(new_time())
     >>> blob = Blob()
     >>> with blob.open('w') as fd:
-    ...     fd.write('this is blob data 0')
+    ...     _ = fd.write(b'this is blob data 0')
     >>> root['blob'] = blob
     >>> transaction.commit()
     >>> tids.append(blob._p_serial)
@@ -50,28 +50,28 @@ Put some revisions of a blob object in our database and on the filesystem:
     >>> nothing = transaction.begin()
     >>> times.append(new_time())
     >>> with root['blob'].open('w') as fd:
-    ...     fd.write('this is blob data 1')
+    ...     _ = fd.write(b'this is blob data 1')
     >>> transaction.commit()
     >>> tids.append(blob._p_serial)
 
     >>> nothing = transaction.begin()
     >>> times.append(new_time())
     >>> with root['blob'].open('w') as fd:
-    ...     fd.write('this is blob data 2')
+    ...     _ = fd.write(b'this is blob data 2')
     >>> transaction.commit()
     >>> tids.append(blob._p_serial)
 
     >>> nothing = transaction.begin()
     >>> times.append(new_time())
     >>> with root['blob'].open('w') as fd:
-    ...     fd.write('this is blob data 3')
+    ...     _ = fd.write(b'this is blob data 3')
     >>> transaction.commit()
     >>> tids.append(blob._p_serial)
 
     >>> nothing = transaction.begin()
     >>> times.append(new_time())
     >>> with root['blob'].open('w') as fd:
-    ...     fd.write('this is blob data 4')
+    ...     _ = fd.write(b'this is blob data 4')
     >>> transaction.commit()
     >>> tids.append(blob._p_serial)
 
