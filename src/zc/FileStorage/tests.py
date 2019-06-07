@@ -26,19 +26,19 @@ import pickle
 import unittest
 import zc.FileStorage
 
-from ZODB.tests.testFileStorage import * # :-P
-from ZODB.tests.PackableStorage import * # :-P
-from ZODB.tests.TransactionalUndoStorage import * # :-P
+from ZODB.tests.testFileStorage import *  # :-P
+from ZODB.tests.PackableStorage import *  # :-P
+from ZODB.tests.TransactionalUndoStorage import *  # :-P
 
 from zope.testing import setupstack
+
 
 class ZCFileStorageTests(FileStorageTests):
 
     blob_dir = None
 
     def setUp(self):
-        self.open(create=1, packer=zc.FileStorage.packer,
-                  blob_dir=self.blob_dir)
+        self.open(create=1, packer=zc.FileStorage.packer, blob_dir=self.blob_dir)
 
     def tearDown(self):
         self._storage.close()
@@ -84,7 +84,6 @@ class ZCFileStorageTests(FileStorageTests):
         raises(KeyError, self._storage.loadSerial, oid, revid2)
         self._storage.loadSerial(oid, revid3)
 
-
     def checkPackUndoLog(self):
         self._initroot()
         # Create a `persistent' object
@@ -110,9 +109,10 @@ class ZCFileStorageTests(FileStorageTests):
     def checkPackWithMultiDatabaseReferences(self):
         pass
 
+
 class ZCFileStorageTestsWithBlobs(ZCFileStorageTests):
 
-    blob_dir = 'blobs'
+    blob_dir = "blobs"
 
 
 time_hack_template = """
@@ -144,6 +144,7 @@ import zc.FileStorage
 zc.FileStorage.GIG = 100
 
 """
+
 
 def test_pack_sleep():
     """
@@ -295,6 +296,7 @@ Now do it all again with a longer sleep:
 
     """
 
+
 def data_transform_and_untransform_hooks():
     r"""The Packer factory takes uptions to transform and untransform data
 
@@ -373,6 +375,7 @@ We should have only one blob file:
     1
 
     """
+
 
 def snapshot_in_time():
     r"""We can take a snapshot in time
@@ -524,21 +527,29 @@ def snapshot_in_time():
 
     """
 
+
 def hexer(data):
-    return (data[:2] == '.h') and data or ('.h'+data.encode('hex'))
+    return (data[:2] == ".h") and data or (".h" + data.encode("hex"))
+
+
 def unhexer(data):
-    return data and (data[:2] == '.h' and data[2:].decode('hex') or data)
+    return data and (data[:2] == ".h" and data[2:].decode("hex") or data)
 
 
 def test_suite():
     suite = unittest.TestSuite()
     suite.addTest(unittest.makeSuite(ZCFileStorageTests, "check"))
     suite.addTest(unittest.makeSuite(ZCFileStorageTestsWithBlobs, "check"))
-    suite.addTest(doctest.DocFileSuite(
-        'blob_packing.txt',
-        setUp=setupstack.setUpDirectory, tearDown=setupstack.tearDown,
-        ))
-    suite.addTest(doctest.DocTestSuite(
-        setUp=setupstack.setUpDirectory, tearDown=setupstack.tearDown,
-        ))
+    suite.addTest(
+        doctest.DocFileSuite(
+            "blob_packing.txt",
+            setUp=setupstack.setUpDirectory,
+            tearDown=setupstack.tearDown,
+        )
+    )
+    suite.addTest(
+        doctest.DocTestSuite(
+            setUp=setupstack.setUpDirectory, tearDown=setupstack.tearDown
+        )
+    )
     return suite
