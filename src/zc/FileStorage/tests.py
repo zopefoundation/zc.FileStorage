@@ -529,11 +529,20 @@ def snapshot_in_time():
 
 
 def hexer(data):
-    return (data[:2] == ".h") and data or (".h" + data.encode("hex"))
+    if data[:2] == ".h":
+        return data
+
+    return ".h" + data.encode("hex")
 
 
 def unhexer(data):
-    return data and (data[:2] == ".h" and data[2:].decode("hex") or data)
+    if not data:
+        return data
+
+    if data[:2] == ".h":
+        return data[2:].decode("hex")
+
+    return data
 
 
 def test_suite():
