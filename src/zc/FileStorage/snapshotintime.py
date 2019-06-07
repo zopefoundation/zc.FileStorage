@@ -38,7 +38,6 @@ conponents are optional.  The time defaults to midnight, UTC.
 """
 
 
-
 def main(args=None):
     if args is None:
         args = sys.argv[1:]
@@ -47,37 +46,36 @@ def main(args=None):
         print(usage % sys.argv[0], file=sys.stderr)
         sys.exit(1)
 
-
     try:
         if len(args) > 2:
             inpath, stop, outpath = args
         else:
             inpath, stop = args
-            if inpath.endswith('.fs'):
-                outpath = inpath[:-3]+stop+'.fs'
+            if inpath.endswith(".fs"):
+                outpath = inpath[:-3] + stop + ".fs"
             else:
-                outpath = inpath+stop
+                outpath = inpath + stop
     except ValueError:
         print(usage % sys.argv[0], file=sys.stderr)
         sys.exit(1)
 
     if not os.path.exists(inpath):
-        print(inpath, 'Does not exist.', file=sys.stderr)
+        print(inpath, "Does not exist.", file=sys.stderr)
         sys.exit(1)
 
     try:
-        date, time = (stop.split('T')+[''])[:2]
-        year, month, day = map(int, date.split('-'))
+        date, time = (stop.split("T") + [""])[:2]
+        year, month, day = map(int, date.split("-"))
         if time:
-            hour, minute, second = (map(int, time.split(':'))+[0,0])[:3]
+            hour, minute, second = (map(int, time.split(":")) + [0, 0])[:3]
         else:
             hour = minute = second = 0
         stop = ZODB.TimeStamp.TimeStamp(year, month, day, hour, minute, second).raw()
 
     except Exception:
-        print('Bad date-time:', stop, file=sys.stderr)
+        print("Bad date-time:", stop, file=sys.stderr)
         sys.exit(1)
 
-    zc.FileStorage.PackProcess(inpath, stop, os.stat(inpath).st_size
-                               ).pack(snapshot_in_time_path=outpath)
-
+    zc.FileStorage.PackProcess(inpath, stop, os.stat(inpath).st_size).pack(
+        snapshot_in_time_path=outpath
+    )

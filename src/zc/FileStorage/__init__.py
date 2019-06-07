@@ -34,24 +34,25 @@ if sys.version_info.major == 2:
 else:
     import pickle
 
-GIG = 1<<30
+GIG = 1 << 30
+
 
 def Packer(sleep=0, transform=None, untransform=None):
     def packer(storage, referencesf, stop, gc):
-        return FileStoragePacker(storage, stop, sleep, transform, untransform
-                                 ).pack()
+        return FileStoragePacker(storage, stop, sleep, transform, untransform).pack()
+
     return packer
 
-packer  = Packer(0)
+
+packer = Packer(0)
 packer1 = Packer(1)
 packer2 = Packer(2)
 packer4 = Packer(3)
 packer8 = Packer(4)
 
-class FileStoragePacker(FileStorageFormatter):
 
-    def __init__(self, storage, stop,
-                 sleep=0, transform=None, untransform=None):
+class FileStoragePacker(FileStorageFormatter):
+    def __init__(self, storage, stop, sleep=0, transform=None, untransform=None):
         self.storage = storage
         self._name = path = storage._file.name
         self.sleep = sleep
@@ -86,46 +87,50 @@ class FileStoragePacker(FileStorageFormatter):
 
     def pack(self):
 
-        script = self._name+'.packscript'
-        open(script, 'w').write(pack_script_template % dict(
-            path = self._name,
-            stop = self._stop,
-            size = self.file_end,
-            syspath = sys.path,
-            blob_dir = self.storage.blob_dir,
-            sleep = self.sleep,
-            transform = self.transform_option,
-            untransform = self.untransform_option,
-            ))
-        for name in 'error', 'log':
-            name = self._name+'.pack'+name
+        script = self._name + ".packscript"
+        open(script, "w").write(
+            pack_script_template
+            % dict(
+                path=self._name,
+                stop=self._stop,
+                size=self.file_end,
+                syspath=sys.path,
+                blob_dir=self.storage.blob_dir,
+                sleep=self.sleep,
+                transform=self.transform_option,
+                untransform=self.untransform_option,
+            )
+        )
+        for name in "error", "log":
+            name = self._name + ".pack" + name
             if os.path.exists(name):
                 os.remove(name)
         proc = subprocess.Popen(
             (sys.executable, script),
             stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             close_fds=True,
-            )
+        )
 
         proc.stdin.close()
         out = proc.stdout.read()
         if proc.wait():
-            if os.path.exists(self._name+'.packerror'):
-                v = pickle.Unpickler(open(self._name+'.packerror', 'rb')
-                                      ).load()
-                os.remove(self._name+'.packerror')
+            if os.path.exists(self._name + ".packerror"):
+                v = pickle.Unpickler(open(self._name + ".packerror", "rb")).load()
+                os.remove(self._name + ".packerror")
                 raise v
-            raise RuntimeError('The Pack subprocess failed\n'
-                               +'-'*60+out+'-'*60+'\n')
+            raise RuntimeError(
+                "The Pack subprocess failed\n" + "-" * 60 + out + "-" * 60 + "\n"
+            )
 
-        packindex_path = self._name+".packindex"
+        packindex_path = self._name + ".packindex"
         if not os.path.exists(packindex_path):
-            return # already packed or pack didn't benefit
+            return  # already packed or pack didn't benefit
 
-        index, opos = pickle.Unpickler(open(packindex_path, 'rb')).load()
+        index, opos = pickle.Unpickler(open(packindex_path, "rb")).load()
         os.remove(packindex_path)
-        os.remove(self._name+".packscript")
+        os.remove(self._name + ".packscript")
 
         output = open(self._name + ".pack", "r+b")
         output.seek(0, 2)
@@ -161,8 +166,12 @@ class FileStoragePacker(FileStorageFormatter):
                 while 1:
                     # The call below will raise CorruptedDataError at EOF.
                     input_pos = self._copyNewTrans(
-                        input_pos, output, index,
-                        self._commit_lock_acquire, self._commit_lock_release)
+                        input_pos,
+                        output,
+                        index,
+                        self._commit_lock_acquire,
+                        self._commit_lock_release,
+                    )
             except CorruptedDataError as err:
                 # The last call to copyOne() will raise
                 # CorruptedDataError, because it will attempt to read past
@@ -176,8 +185,8 @@ class FileStoragePacker(FileStorageFormatter):
             self._file.close()
 
     transform = None
-    def _copyNewTrans(self, input_pos, output, index,
-                      acquire=None, release=None):
+
+    def _copyNewTrans(self, input_pos, output, index, acquire=None, release=None):
         tindex = {}
         copier = PackCopier(output, index, tindex)
         th = self._read_txn_header(input_pos)
@@ -206,8 +215,7 @@ class FileStoragePacker(FileStorageFormatter):
 
             if data and (transform is not None):
                 data = transform(data)
-            copier.copy(h.oid, h.tid, data, prev_txn,
-                        output_tpos, output.tell())
+            copier.copy(h.oid, h.tid, data, prev_txn, output_tpos, output.tell())
 
             input_pos += h.recordlen()
 
@@ -224,7 +232,7 @@ class FileStoragePacker(FileStorageFormatter):
 
         index.update(tindex)
         tindex.clear()
-        time.sleep((time.time()-start_time)*self.sleep)
+        time.sleep((time.time() - start_time) * self.sleep)
 
         if acquire is not None:
             acquire()
@@ -237,8 +245,8 @@ class FileStoragePacker(FileStorageFormatter):
         data, tid = self._loadBackTxn(oid, back, 0)
         return data
 
-class PackCopier(ZODB.FileStorage.fspack.PackCopier):
 
+class PackCopier(ZODB.FileStorage.fspack.PackCopier):
     def _txn_find(self, tid, stop_at_pack):
         # _pos always points just past the last transaction
         pos = self._pos
@@ -251,7 +259,7 @@ class PackCopier(ZODB.FileStorage.fspack.PackCopier):
             if _tid == tid:
                 return pos
             if stop_at_pack:
-                if h[16] == 'p':
+                if h[16] == "p":
                     break
 
         return None
@@ -292,11 +300,18 @@ except Exception as v:
     raise
 """
 
-class PackProcess(FileStoragePacker):
 
-    def __init__(self, path, stop, current_size,
-                 blob_dir=None, sleep=0, transform=None, untransform=None,
-                 ):
+class PackProcess(FileStoragePacker):
+    def __init__(
+        self,
+        path,
+        stop,
+        current_size,
+        blob_dir=None,
+        sleep=0,
+        transform=None,
+        untransform=None,
+    ):
         self._name = path
         # We open our own handle on the storage so that much of pack can
         # proceed in parallel.  It's important to close this file at every
@@ -305,7 +320,7 @@ class PackProcess(FileStoragePacker):
 
         if blob_dir:
             self.pack_blobs = True
-            self.blob_removed = open(os.path.join(blob_dir, '.removed'), 'w')
+            self.blob_removed = open(os.path.join(blob_dir, ".removed"), "w")
         else:
             self.pack_blobs = False
 
@@ -326,10 +341,9 @@ class PackProcess(FileStoragePacker):
         if isinstance(untransform, str):
             untransform = getglobal(untransform)
         self.untransform = untransform
-        logging.info('packing to %s, sleep %s',
-                     ZODB.TimeStamp.TimeStamp(self._stop),
-                     self.sleep)
-
+        logging.info(
+            "packing to %s, sleep %s", ZODB.TimeStamp.TimeStamp(self._stop), self.sleep
+        )
 
     def _read_txn_header(self, pos, tid=None):
         self._freecache(pos)
@@ -337,21 +351,21 @@ class PackProcess(FileStoragePacker):
 
     def pack(self, snapshot_in_time_path=None):
         packed, index, packpos = self.buildPackIndex(self._stop, self.file_end)
-        logging.info('initial scan %s objects at %s', len(index), packpos)
+        logging.info("initial scan %s objects at %s", len(index), packpos)
         if packed:
             # nothing to do
-            logging.info('done, nothing to do')
+            logging.info("done, nothing to do")
             self._file.close()
             return
 
-        logging.info('copy to pack time')
+        logging.info("copy to pack time")
         output = open(snapshot_in_time_path or (self._name + ".pack"), "w+b")
         self._freeoutputcache = _freefunc(output)
         index, new_pos = self.copyToPacktime(packpos, index, output)
         if snapshot_in_time_path:
             # We just want a snapshot in time, containing current records as
             # of that time.
-            index.save(packpos, snapshot_in_time_path+'.index')
+            index.save(packpos, snapshot_in_time_path + ".index")
             return
 
         if new_pos == packpos:
@@ -359,23 +373,22 @@ class PackProcess(FileStoragePacker):
             self._file.close()
             output.close()
             os.remove(self._name + ".pack")
-            logging.info('done, no decrease')
+            logging.info("done, no decrease")
             return
 
-        logging.info('copy from pack time')
+        logging.info("copy from pack time")
         self._freecache = self._freeoutputcache = lambda pos: None
         self.copyFromPacktime(packpos, self.file_end, output, index)
 
         # Save the index so the parent process can use it as a starting point.
-        f = open(self._name + ".packindex", 'wb')
+        f = open(self._name + ".packindex", "wb")
         pickle.Pickler(f, 1).dump((index, output.tell()))
         f.close()
         output.flush()
         os.fsync(output.fileno())
         output.close()
         self._file.close()
-        logging.info('packscript done')
-
+        logging.info("packscript done")
 
     def buildPackIndex(self, stop, file_end):
         index = ZODB.fsIndex.fsIndex()
@@ -409,16 +422,20 @@ class PackProcess(FileStoragePacker):
 
             tlen = self._read_num(pos)
             if tlen != th.tlen:
-                self.fail(pos, "redundant transaction length does not "
-                          "match initial transaction length: %d != %d",
-                          tlen, th.tlen)
+                self.fail(
+                    pos,
+                    "redundant transaction length does not "
+                    "match initial transaction length: %d != %d",
+                    tlen,
+                    th.tlen,
+                )
             pos += 8
 
             if pos - log_pos > GIG:
                 logging.info("read %s" % pos)
                 log_pos = pos
 
-            time.sleep((time.time()-start_time)*self.sleep)
+            time.sleep((time.time() - start_time) * self.sleep)
 
         return packed, index, pos
 
@@ -434,6 +451,7 @@ class PackProcess(FileStoragePacker):
             is_blob_record = ZODB.blob.is_blob_record
         else:
             _is_blob_record = ZODB.blob.is_blob_record
+
             def is_blob_record(data):
                 return _is_blob_record(untransform(data))
 
@@ -464,8 +482,7 @@ class PackProcess(FileStoragePacker):
                             # blob support that causes duplicate data
                             # records.
                             rpos = index.get(h.oid)
-                            is_dup = (rpos and
-                                      self._read_data_header(rpos).tid == h.tid)
+                            is_dup = rpos and self._read_data_header(rpos).tid == h.tid
                             if not is_dup:
                                 # Note that we delete the revision.
                                 # If rpos was None, then we could
@@ -476,7 +493,8 @@ class PackProcess(FileStoragePacker):
                                 # code to take care of removing the
                                 # directory for us.
                                 self.blob_removed.write(
-                                    (h.oid+h.tid).encode('hex')+'\n')
+                                    (h.oid + h.tid).encode("hex") + "\n"
+                                )
 
                     continue
 
@@ -496,7 +514,7 @@ class PackProcess(FileStoragePacker):
                     # If a current record has a backpointer, fetch
                     # refs and data from the backpointer.  We need
                     # to write the data in the new record.
-                    data = self.fetchBackpointer(h.oid, h.back) or ''
+                    data = self.fetchBackpointer(h.oid, h.back) or ""
 
                 if transform is not None:
                     data = self.transform(data)
@@ -528,14 +546,13 @@ class PackProcess(FileStoragePacker):
 
                 self._freeoutputcache(new_pos)
 
-
             pos += 8
 
             if pos - log_pos > GIG:
                 logging.info("read %s" % pos)
                 log_pos = pos
 
-            time.sleep((time.time()-start_time)*self.sleep)
+            time.sleep((time.time() - start_time) * self.sleep)
 
         return new_index, new_pos
 
@@ -563,12 +580,13 @@ class PackProcess(FileStoragePacker):
                 logging.info("read %s" % pos)
                 log_pos = pos
 
-            time.sleep((time.time()-start_time)*self.sleep)
+            time.sleep((time.time() - start_time) * self.sleep)
         return pos
 
+
 def getglobal(s):
-    module, expr = s.split(':', 1)
-    return eval(expr, __import__(module, {}, {}, ['*']).__dict__)
+    module, expr = s.split(":", 1)
+    return eval(expr, __import__(module, {}, {}, ["*"]).__dict__)
 
 
 def _freefunc(f):
@@ -581,6 +599,7 @@ def _freefunc(f):
 
     fd = f.fileno()
     last = [0]
+
     def _free(pos):
         if pos == 4:
             last[0] = 0
@@ -589,7 +608,7 @@ def _freefunc(f):
 
         last[0] = pos
         _zc_FileStorage_posix_fadvise.advise(
-            fd, 0, last[0]-10000,
-            _zc_FileStorage_posix_fadvise.POSIX_FADV_DONTNEED)
+            fd, 0, last[0] - 10000, _zc_FileStorage_posix_fadvise.POSIX_FADV_DONTNEED
+        )
 
     return _free
