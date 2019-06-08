@@ -23,16 +23,13 @@ import time
 from ZODB.FileStorage.format import FileStorageFormatter, CorruptedDataError
 from ZODB.utils import p64, u64, z64
 from ZODB.FileStorage.format import TRANS_HDR_LEN
+from zodbpickle import pickle
 
 import ZODB.FileStorage
 import ZODB.FileStorage.fspack
 import ZODB.fsIndex
 import ZODB.TimeStamp
 
-if sys.version_info.major == 2:
-    import cPickle as pickle
-else:
-    import pickle
 
 GIG = 1 << 30
 
@@ -273,12 +270,8 @@ import sys, logging
 
 sys.path[:] = %(syspath)r
 
-if sys.version_info.major == 2:
-    import cPickle as pickle
-else:
-    import pickle
-
 import zc.FileStorage
+from zodbpickle import pickle
 
 logging.getLogger().setLevel(logging.INFO)
 handler = logging.FileHandler(%(path)r+'.packlog')

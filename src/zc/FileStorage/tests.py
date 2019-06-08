@@ -22,7 +22,6 @@
 import ZODB.blob
 import ZODB.tests.testblob
 import doctest
-import pickle
 import time
 import unittest
 import zc.FileStorage
@@ -32,6 +31,7 @@ from zope.testing import setupstack
 from ZODB.tests.testFileStorage import FileStorageTests
 from ZODB.tests.PackableStorage import pdumps
 from ZODB.tests.TransactionalUndoStorage import snooze
+from zodbpickle import pickle
 
 
 class ZCFileStorageTests(FileStorageTests):
