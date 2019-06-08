@@ -14,6 +14,7 @@
 
 from __future__ import absolute_import
 
+import binascii
 import logging
 import os
 import subprocess
@@ -316,7 +317,7 @@ class PackProcess(FileStoragePacker):
 
         if blob_dir:
             self.pack_blobs = True
-            self.blob_removed = open(os.path.join(blob_dir, ".removed"), "w")
+            self.blob_removed = open(os.path.join(blob_dir, ".removed"), "wb")
         else:
             self.pack_blobs = False
 
@@ -487,7 +488,7 @@ class PackProcess(FileStoragePacker):
                                 # code to take care of removing the
                                 # directory for us.
                                 self.blob_removed.write(
-                                    (h.oid + h.tid).encode("hex") + "\n"
+                                    binascii.hexlify(h.oid + h.tid) + b"\n"
                                 )
 
                     continue
@@ -508,7 +509,7 @@ class PackProcess(FileStoragePacker):
                     # If a current record has a backpointer, fetch
                     # refs and data from the backpointer.  We need
                     # to write the data in the new record.
-                    data = self.fetchBackpointer(h.oid, h.back) or ""
+                    data = self.fetchBackpointer(h.oid, h.back) or b""
 
                 if transform is not None:
                     data = self.transform(data)

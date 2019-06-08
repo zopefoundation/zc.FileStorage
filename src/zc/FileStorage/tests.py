@@ -19,6 +19,7 @@
 # tests affected by the lack of gc in pack.
 ##############################################################################
 
+import binascii
 import ZODB.blob
 import ZODB.tests.testblob
 import doctest
@@ -537,18 +538,18 @@ def snapshot_in_time():
 
 
 def hexer(data):
-    if data[:2] == ".h":
+    if data[:2] == b".h":
         return data
 
-    return ".h" + data.encode("hex")
+    return b".h" + binascii.hexlify(data)
 
 
 def unhexer(data):
     if not data:
         return data
 
-    if data[:2] == ".h":
-        return data[2:].decode("hex")
+    if data[:2] == b".h":
+        return binascii.unhexlify(data[2:])
 
     return data
 
