@@ -14,6 +14,7 @@
 
 from __future__ import absolute_import
 
+import binascii
 import logging
 import os
 import subprocess
@@ -23,16 +24,13 @@ import time
 from ZODB.FileStorage.format import FileStorageFormatter, CorruptedDataError
 from ZODB.utils import p64, u64, z64
 from ZODB.FileStorage.format import TRANS_HDR_LEN
+from zodbpickle import pickle
 
 import ZODB.FileStorage
 import ZODB.FileStorage.fspack
 import ZODB.fsIndex
 import ZODB.TimeStamp
 
-if sys.version_info.major == 2:
-    import cPickle as pickle
-else:
-    import pickle
 
 GIG = 1 << 30
 
@@ -88,19 +86,20 @@ class FileStoragePacker(FileStorageFormatter):
     def pack(self):
 
         script = self._name + ".packscript"
-        open(script, "w").write(
-            pack_script_template
-            % dict(
-                path=self._name,
-                stop=self._stop,
-                size=self.file_end,
-                syspath=sys.path,
-                blob_dir=self.storage.blob_dir,
-                sleep=self.sleep,
-                transform=self.transform_option,
-                untransform=self.untransform_option,
+        with open(script, "w") as fd:
+            fd.write(
+                pack_script_template
+                % dict(
+                    path=self._name,
+                    stop=self._stop,
+                    size=self.file_end,
+                    syspath=sys.path,
+                    blob_dir=self.storage.blob_dir,
+                    sleep=self.sleep,
+                    transform=self.transform_option,
+                    untransform=self.untransform_option,
+                )
             )
-        )
         for name in "error", "log":
             name = self._name + ".pack" + name
             if os.path.exists(name):
@@ -117,7 +116,8 @@ class FileStoragePacker(FileStorageFormatter):
         out = proc.stdout.read()
         if proc.wait():
             if os.path.exists(self._name + ".packerror"):
-                v = pickle.Unpickler(open(self._name + ".packerror", "rb")).load()
+                with open(self._name + ".packerror", "rb") as fd:
+                    v = pickle.Unpickler(fd).load()
                 os.remove(self._name + ".packerror")
                 raise v
             raise RuntimeError(
@@ -128,18 +128,18 @@ class FileStoragePacker(FileStorageFormatter):
         if not os.path.exists(packindex_path):
             return  # already packed or pack didn't benefit
 
-        index, opos = pickle.Unpickler(open(packindex_path, "rb")).load()
+        with open(packindex_path, "rb") as fd:
+            index, opos = pickle.Unpickler(fd).load()
         os.remove(packindex_path)
         os.remove(self._name + ".packscript")
 
-        output = open(self._name + ".pack", "r+b")
-        output.seek(0, 2)
-        assert output.tell() == opos
-        self.copyRest(self.file_end, output, index)
+        with open(self._name + ".pack", "r+b") as output:
+            output.seek(0, 2)
+            assert output.tell() == opos
+            self.copyRest(self.file_end, output, index)
 
-        # OK, we've copied everything. Now we need to wrap things up.
-        pos = output.tell()
-        output.close()
+            # OK, we've copied everything. Now we need to wrap things up.
+            pos = output.tell()
 
         return pos, index
 
@@ -271,12 +271,8 @@ import sys, logging
 
 sys.path[:] = %(syspath)r
 
-if sys.version_info.major == 2:
-    import cPickle as pickle
-else:
-    import pickle
-
 import zc.FileStorage
+from zodbpickle import pickle
 
 logging.getLogger().setLevel(logging.INFO)
 handler = logging.FileHandler(%(path)r+'.packlog')
@@ -296,7 +292,8 @@ except Exception as v:
     except Exception:
         pass
     else:
-        open(%(path)r+'.packerror', 'w').write(v)
+        with open(%(path)r+'.packerror', 'w') as fd:
+            fd.write(v)
     raise
 """
 
@@ -320,7 +317,7 @@ class PackProcess(FileStoragePacker):
 
         if blob_dir:
             self.pack_blobs = True
-            self.blob_removed = open(os.path.join(blob_dir, ".removed"), "w")
+            self.blob_removed = open(os.path.join(blob_dir, ".removed"), "wb")
         else:
             self.pack_blobs = False
 
@@ -359,35 +356,33 @@ class PackProcess(FileStoragePacker):
             return
 
         logging.info("copy to pack time")
-        output = open(snapshot_in_time_path or (self._name + ".pack"), "w+b")
-        self._freeoutputcache = _freefunc(output)
-        index, new_pos = self.copyToPacktime(packpos, index, output)
-        if snapshot_in_time_path:
-            # We just want a snapshot in time, containing current records as
-            # of that time.
-            index.save(packpos, snapshot_in_time_path + ".index")
-            return
+        with open(snapshot_in_time_path or (self._name + ".pack"), "w+b") as output:
+            self._freeoutputcache = _freefunc(output)
+            index, new_pos = self.copyToPacktime(packpos, index, output)
+            if snapshot_in_time_path:
+                # We just want a snapshot in time, containing current records as
+                # of that time.
+                index.save(packpos, snapshot_in_time_path + ".index")
+                return
 
-        if new_pos == packpos:
-            # pack didn't free any data.  there's no point in continuing.
+            if new_pos == packpos:
+                # pack didn't free any data.  there's no point in continuing.
+                self._file.close()
+                os.remove(self._name + ".pack")
+                logging.info("done, no decrease")
+                return
+
+            logging.info("copy from pack time")
+            self._freecache = self._freeoutputcache = lambda pos: None
+            self.copyFromPacktime(packpos, self.file_end, output, index)
+
+            # Save the index so the parent process can use it as a starting point.
+            with open(self._name + ".packindex", "wb") as f:
+                pickle.Pickler(f, 1).dump((index, output.tell()))
+
+            output.flush()
+            os.fsync(output.fileno())
             self._file.close()
-            output.close()
-            os.remove(self._name + ".pack")
-            logging.info("done, no decrease")
-            return
-
-        logging.info("copy from pack time")
-        self._freecache = self._freeoutputcache = lambda pos: None
-        self.copyFromPacktime(packpos, self.file_end, output, index)
-
-        # Save the index so the parent process can use it as a starting point.
-        f = open(self._name + ".packindex", "wb")
-        pickle.Pickler(f, 1).dump((index, output.tell()))
-        f.close()
-        output.flush()
-        os.fsync(output.fileno())
-        output.close()
-        self._file.close()
         logging.info("packscript done")
 
     def buildPackIndex(self, stop, file_end):
@@ -493,7 +488,7 @@ class PackProcess(FileStoragePacker):
                                 # code to take care of removing the
                                 # directory for us.
                                 self.blob_removed.write(
-                                    (h.oid + h.tid).encode("hex") + "\n"
+                                    binascii.hexlify(h.oid + h.tid) + b"\n"
                                 )
 
                     continue
@@ -514,7 +509,7 @@ class PackProcess(FileStoragePacker):
                     # If a current record has a backpointer, fetch
                     # refs and data from the backpointer.  We need
                     # to write the data in the new record.
-                    data = self.fetchBackpointer(h.oid, h.back) or ""
+                    data = self.fetchBackpointer(h.oid, h.back) or b""
 
                 if transform is not None:
                     data = self.transform(data)

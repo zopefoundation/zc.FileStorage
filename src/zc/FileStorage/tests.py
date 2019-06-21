@@ -19,18 +19,20 @@
 # tests affected by the lack of gc in pack.
 ##############################################################################
 
+import binascii
 import ZODB.blob
 import ZODB.tests.testblob
 import doctest
-import pickle
+import time
 import unittest
 import zc.FileStorage
 
-from ZODB.tests.testFileStorage import *  # :-P
-from ZODB.tests.PackableStorage import *  # :-P
-from ZODB.tests.TransactionalUndoStorage import *  # :-P
-
+from ZODB.serialize import referencesf
 from zope.testing import setupstack
+from ZODB.tests.testFileStorage import FileStorageTests
+from ZODB.tests.PackableStorage import pdumps
+from ZODB.tests.TransactionalUndoStorage import snooze
+from zodbpickle import pickle
 
 
 class ZCFileStorageTests(FileStorageTests):
@@ -155,7 +157,7 @@ Mess with time -- there should be infrastructure for this!
     >>> exec(time_hack_template)
     >>> time.sleep = time_sleep
 
-    >>> import threading, transaction, shutil, ZODB.FileStorage, zc.FileStorage
+    >>> import os, threading, transaction, shutil, ZODB.FileStorage, zc.FileStorage
     >>> fs = ZODB.FileStorage.FileStorage('data.fs',
     ...                                   packer=zc.FileStorage.packer1)
     >>> db = ZODB.DB(fs)
@@ -186,7 +188,8 @@ Mess with time -- there should be infrastructure for this!
     sleep 1.0
 
     >>> fs.close()
-    >>> print(open('data.fs.packlog').read()) # doctest: +NORMALIZE_WHITESPACE
+    >>> with open('data.fs.packlog') as fd:
+    ...     print(fd.read()) # doctest: +NORMALIZE_WHITESPACE
     2010-03-09 15:27:55,000 root INFO packing to 2010-03-09 20:28:06.000000,
        sleep 1
     2010-03-09 15:27:57,000 root INFO read 162
@@ -238,11 +241,12 @@ Mess with time -- there should be infrastructure for this!
 
 Now do it all again with a longer sleep:
 
-    >>> shutil.copyfile('data.fs.old', 'data.fs')
+    >>> _ = shutil.copyfile('data.fs.old', 'data.fs')
     >>> fs = ZODB.FileStorage.FileStorage('data.fs',
     ...                                   packer=zc.FileStorage.packer2)
     >>> fs.pack(pack_time, now)
-    >>> print(open('data.fs.packlog').read()) # doctest: +NORMALIZE_WHITESPACE
+    >>> with open('data.fs.packlog') as fd:
+    ...     print(fd.read()) # doctest: +NORMALIZE_WHITESPACE
     2010-03-09 15:27:55,000 root INFO packing to 2010-03-09 20:28:06.000000,
       sleep 2
     2010-03-09 15:27:57,000 root INFO read 162
@@ -305,7 +309,7 @@ to transform them so that they aren't raw pickles.  To test this,
 we'll take a file storage database and convert it to use the
 ZODB.tests.hexstorage trandormation.
 
-    >>> import ZODB.FileStorage
+    >>> import os, ZODB.FileStorage
     >>> db = ZODB.DB(ZODB.FileStorage.FileStorage(
     ...     'data.fs', blob_dir='blobs',
     ...     packer=zc.FileStorage.Packer(
@@ -313,10 +317,11 @@ ZODB.tests.hexstorage trandormation.
     ...            untransform='zc.FileStorage.tests:unhexer',
     ...            )))
     >>> conn = db.open()
-    >>> conn.root.b = ZODB.blob.Blob('test')
+    >>> conn.root.b = ZODB.blob.Blob(b'test')
     >>> conn.transaction_manager.commit()
 
-    >>> _ = conn.root.b.open().read()
+    >>> with conn.root.b.open() as fd:
+    ...     _ = fd.read()
 
 So, here we have some untransformed data. Now, we'll pack it:
 
@@ -324,10 +329,10 @@ So, here we have some untransformed data. Now, we'll pack it:
 
 Now, the database records are hex:
 
-    >>> db.storage.load('\0'*8)[0][:50]
+    >>> db.storage.load(b'\0'*8)[0][:50]
     '.h6370657273697374656e742e6d617070696e670a50657273'
 
-    >>> db.storage.load('\0'*7+'\1')[0][:50]
+    >>> db.storage.load(b'\0'*7+b'\1')[0][:50]
     '.h635a4f44422e626c6f620a426c6f620a71012e4e2e'
 
 Let's add an object. (WE get away with this because the object's we
@@ -338,10 +343,10 @@ use are in the cache. :)
 
 Now the root and the new object are not hex:
 
-    >>> db.storage.load('\0'*8)[0][:50]
+    >>> db.storage.load(b'\0'*8)[0][:50]
     'cpersistent.mapping\nPersistentMapping\nq\x01.}q\x02U\x04data'
 
-    >>> db.storage.load('\0'*7+'\2')[0][:50]
+    >>> db.storage.load(b'\0'*7+b'\2')[0][:50]
     'cpersistent.mapping\nPersistentMapping\nq\x01.}q\x02U\x04data'
 
 We capture the current time as the pack time:
@@ -352,7 +357,8 @@ We capture the current time as the pack time:
 
 We'll throw in a blob modification:
 
-    >>> conn.root.b.open('w').write('test 2')
+    >>> with conn.root.b.open('w') as fd:
+    ...     _ = fd.write(b'test 2')
     >>> conn.transaction_manager.commit()
 
 Now pack and make sure all the records have been transformed:
@@ -385,7 +391,7 @@ def snapshot_in_time():
 
     First, we'll hack time:
 
-    >>> import logging
+    >>> import logging, os
     >>> exec(time_hack_template)
 
     Next, we'll create a file storage with some data:
@@ -417,7 +423,8 @@ def snapshot_in_time():
     We'll comput a hash of the old file contents:
 
     >>> import hashlib
-    >>> hash = hashlib.sha1(open('data.fs').read()).digest()
+    >>> with open('data.fs', 'rb') as fd:
+    ...     hash = hashlib.sha1(fd.read()).digest()
 
     OK, we have a database with a bunch of revisions.
     Now, let's make a snapshot:
@@ -436,7 +443,8 @@ def snapshot_in_time():
 
     The orginal file is unchanged:
 
-    >>> hashlib.sha1(open('data.fs').read()).digest() == hash
+    >>> with open('data.fs', 'rb') as fd:
+    ...     hashlib.sha1(fd.read()).digest() == hash
     True
 
     The new file has just the final records:
@@ -522,18 +530,28 @@ def snapshot_in_time():
      'data2010-3-9T20:29:0.fs', 'data2010-3-9T20:29:0.fs.index',
      'snapshot.fs', 'snapshot.fs.index', 'snapshot.fs.lock', 'snapshot.fs.tmp']
 
-    >>> open('data2010-3-9T20:29:0.fs').read() == open('snapshot.fs').read()
+    >>> with open('data2010-3-9T20:29:0.fs', 'rb') as fd1, open('snapshot.fs', 'rb') as fd2:
+    ...     fd1.read() == fd2.read()
     True
 
     """
 
 
 def hexer(data):
-    return (data[:2] == ".h") and data or (".h" + data.encode("hex"))
+    if data[:2] == b".h":
+        return data
+
+    return b".h" + binascii.hexlify(data)
 
 
 def unhexer(data):
-    return data and (data[:2] == ".h" and data[2:].decode("hex") or data)
+    if not data:
+        return data
+
+    if data[:2] == b".h":
+        return binascii.unhexlify(data[2:])
+
+    return data
 
 
 def test_suite():

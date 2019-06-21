@@ -15,7 +15,6 @@
 from __future__ import print_function
 
 import os
-import re
 import sys
 import zc.FileStorage
 import ZODB.TimeStamp
@@ -65,9 +64,9 @@ def main(args=None):
 
     try:
         date, time = (stop.split("T") + [""])[:2]
-        year, month, day = map(int, date.split("-"))
+        year, month, day = (int(x) for x in date.split("-"))
         if time:
-            hour, minute, second = (map(int, time.split(":")) + [0, 0])[:3]
+            hour, minute, second = ([int(x) for x in time.split(":")] + [0, 0])[:3]
         else:
             hour = minute = second = 0
         stop = ZODB.TimeStamp.TimeStamp(year, month, day, hour, minute, second).raw()
